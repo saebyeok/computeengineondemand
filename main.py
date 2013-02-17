@@ -63,6 +63,7 @@ def instances():
 				})
 		elif instance["status"] == "TERMINATED":
 			# Terminated instances should be deleted to not occupy quota.
+			# Instances can become TERMINATED on datacenter maintenance, on instance crashes or virtualization host crashes.
 			shutdownInstance(instance["name"])
 
 	return instances
