@@ -160,7 +160,11 @@ def announceActiveServers():
 		instance = memcache.get("active-server-" + key)
 		if instance is not None and 'ip' in instance:
 			payload[key] = instance['ip']
+			payload[key + "_data"] = ""
 			logging.debug('Active server for %s is %s.' % (zonegroup, instance['ip']))
+			instanceLoad = memcache.get('load-' + instance['name'])
+			if instanceLoad is not None and 'data' in instanceLoad:
+				payload[key + "_data"] = instanceLoad['data']
 
 	for url in ANNOUNCE_URLS:
 		urlfetch.fetch(
@@ -253,7 +257,7 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 		self.response.out.write('<table><tr><th>Active in zonegroup</th><th>Name</th><th>IP</th><th>Zone</th>')
 		for key, treshold in TRESHOLDS.iteritems():
 			self.response.out.write('<th>%s (max %s)</th>' % (key, str(treshold['max'])))
-		self.response.out.write('</tr>')
+		self.response.out.write('<th>Data</th></tr>')
 
 		# Code for currently non-working v1beta14:
 		#
@@ -292,6 +296,10 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 				else:
 					self.response.out.write('-')
 				self.response.out.write('</td>')
+			if instanceLoad is not None and 'data' in instanceLoad:
+				self.response.out.write('<td>' + instanceLoad['data'] + '</td>')
+			else:
+				self.response.out.write('<td></td>')
 			self.response.out.write('<td><input type="hidden" name="instance" value="%s" /><input type="submit" name="action" value="Shutdown" /></td></form></tr>' % (instance['name']));
 
 		self.response.out.write('</table>')
@@ -320,7 +328,8 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 			result = loadReport(ip = self.request.remote_addr, load = {
 				'connections': self.request.get('connections'),
 				'traffic': self.request.get('traffic'),
-				'messages': self.request.get('messages')
+				'messages': self.request.get('messages'),
+				'data': self.request.get('data')
 			})
 			if result:
 				self.response.out.write('OK')
