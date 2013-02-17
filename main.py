@@ -33,8 +33,7 @@ TRESHOLDS = {
 }
 ZONEGROUPS = { # Load will checked within each zone group, adding new servers in random zone within the group.
 	'europe-west': [ 'europe-west1-a', 'europe-west1-b' ],
-	'us-central': [ 'us-central1-a', 'us-central1-b', 'us-central2-a' ],
-	'us-east': [ 'us-east1-a' ]
+	'us-central': [ 'us-central1-a', 'us-central1-b', 'us-central2-a' ]
 }
 
 # Build our connection to the Compute Engine API:
@@ -69,14 +68,26 @@ def instances():
 	return instances
 
 def loadReport(ip, load):
+	announce = False
 	for instance in instances():
 		if ip == instance['ip']:
+			logging.debug("Got report request from instance at %s" % ip)
+			instanceLoad = memcache.get('load-' + instance['name']) # Get the load for the server
+			if ('data' in instanceLoad and 'data' not in load) or ('data' in instanceLoad and 'data' not in load) or ('data' in instanceLoad and 'data' in load and instanceLoad['data'] != load['data']):
+				# Data string from instance changed. We should announce!
+				logging.debug("Data parameter from instance has changed.")
+				announce = True
+			else:
+				logging.debug('Data parameter from instance did not change.')
 			memcache.set('load-' + instance['name'], load)
-			reconsiderServers()
-			return True
-	return False
+			if reconsiderServers():
+				logging.debug('Something was reconsidered. We should announce it!')
+				announce = True
+	if announce:
+		announceActiveServers()
 
 def reconsiderServers():
+	announce = False
 	for key, zones in ZONEGROUPS.iteritems():
 		instancesInZoneGroup = []
 		for instance in instances(): # Loop all running instances
@@ -87,7 +98,10 @@ def reconsiderServers():
 
 		addServersInZoneGroup(key, instancesInZoneGroup) # In case we need more servers in a zone group, start more servers!
 		destroyServersInZoneGroup(key, instancesInZoneGroup) # In case we can shut down some servers in a zone group, do it.
-		setActiveServerInZoneGroup(key, instancesInZoneGroup) # Decide what server to be the active one (the one we send new connections to)
+		if setActiveServerInZoneGroup(key, instancesInZoneGroup): # Decide what server to be the active one (the one we send new connections to)
+			logging.debug("setActiveServerInZoneGroup returned that we should announce.")
+			announce = True
+	return announce # Return wheather we should announce a change?
 
 def addServersInZoneGroup(zonegroup, instancesInZoneGroup):
 	if len(instancesInZoneGroup) == 0:
@@ -147,13 +161,20 @@ def setActiveServerInZoneGroup(zonegroup, instancesInZoneGroup):
 						memcache.set("status-" + instance['name'], 'sloping')
 		if ok:
 			if active == None or not 'name' in active or instanceStatus != 'active' or active['name'] != instance['name']:
+				logging.debug('Active server changed (or was not set).')
 				memcache.set("status-" + instance['name'], 'active')
 				memcache.set('active-server-' + zonegroup, instance)
-				announceActiveServers()
-			return
-	# We got this far. There is no good candidate for being the active server.
+				return True # True = we need to announce that something changed
+			else:
+				logging.debug('No change in active server.')
+			return False # False = we do not need to announce anything
+	logging.debug('There is no good candidate for being the active server.')
+	return False # False = we do not need to announce anything
 
 def announceActiveServers():
+
+	logging.debug('Announcing our instances');
+
 	# Make HTTP POST request to the ANNOUNCE_URLS with active ip:s for each zonegroup.
 	payload = {}
 	for key, zonegroup in ZONEGROUPS.iteritems():
@@ -167,6 +188,7 @@ def announceActiveServers():
 				payload[key + "_data"] = instanceLoad['data']
 
 	for url in ANNOUNCE_URLS:
+		logging.debug(' - Announcing to: %s' % url);
 		urlfetch.fetch(
 			url = url,
 			method = urlfetch.POST,
@@ -325,16 +347,12 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 	def post(self):
 		action = self.request.get('action')
 		if action == 'report':
-			result = loadReport(ip = self.request.remote_addr, load = {
+			loadReport(ip = self.request.remote_addr, load = {
 				'connections': self.request.get('connections'),
 				'traffic': self.request.get('traffic'),
 				'messages': self.request.get('messages'),
 				'data': self.request.get('data')
 			})
-			if result:
-				self.response.out.write('OK')
-			else:
-				self.response.out.write('ERR')
 		else:
 			if not self.is_authorized():
 				return
