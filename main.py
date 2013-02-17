@@ -61,6 +61,10 @@ def instances():
 					"zone": zone,
 					"ip": ip
 				})
+		elif instance["status"] == "TERMINATED":
+			# Terminated instances should be deleted to not occupy quota.
+			shutdownInstance(instance["name"])
+
 	return instances
 
 def loadReport(ip, load):
@@ -275,7 +279,7 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 			for key, zonegroup in ZONEGROUPS.iteritems():
 				if instance['zone'] in zonegroup:
 					active = memcache.get('active-server-' + key)
-					if active['name'] == instance['name']:
+					if active is not None and active['name'] == instance['name']:
 						self.response.out.write(key)
 
 			self.response.out.write('</td><td>%s</td><td>%s</td><td>%s</td>' % (instance['name'], instance['ip'], instance['zone']))
