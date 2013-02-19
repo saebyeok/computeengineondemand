@@ -17,12 +17,10 @@ from google.appengine.api import users
 
 # Some configuration:
 PROJECT_ID = 'turnserver'
-#API_VERSION = 'v1beta14' # Instances started by 14 get stuck in "PENDING" state.
-API_VERSION = 'v1beta13' # v1beta13
+API_VERSION = 'v1beta13'
 GCE_URL = 'https://www.googleapis.com/compute/%s/projects' % (API_VERSION)
 GCE_PROJECT_URL = GCE_URL + '/' + PROJECT_ID;
-#IMAGE = 'global/images/centos-6-v20130104' #v1beta14 version
-IMAGE = 'images/centos-6-v20130104' # v1beta13
+IMAGE = 'images/centos-6-v20130104'
 ANNOUNCE_URLS = [
 	'http://dev.klandestino.se/gce_announce'
 ]
@@ -212,8 +210,7 @@ def startInstance(zone): # Start a new server in a given zone.
 						"type": "ONE_TO_ONE_NAT"
 					}
 				],
-				# "network": "%s/global/networks/default" % (GCE_PROJECT_URL) # v1beta14 version
-				"network": "%s/networks/default" % (GCE_PROJECT_URL) #v1beta13 version
+				"network": "%s/networks/default" % (GCE_PROJECT_URL)
 			}
 		],
 		"serviceAccounts": [
@@ -230,15 +227,12 @@ def startInstance(zone): # Start a new server in a given zone.
 		"metadata": {
 			"items": []
 		},
-		# "machineType": "%s/global/machineTypes/n1-standard-1" % (GCE_PROJECT_URL), # v1beta14 version
-		"machineType": "%s/machineTypes/n1-standard-1" % (GCE_PROJECT_URL), # v1beta13 version
+		"machineType": "%s/machineTypes/n1-standard-1" % (GCE_PROJECT_URL),
 		"zone": "%s/zones/%s" % (GCE_PROJECT_URL, zone),
-		# "image": "%s/%s" % (GCE_PROJECT_URL, IMAGE) # v1beta14 version
-		"image": "%s/google/%s" % (GCE_URL, IMAGE) # v1beta13 version
+		"image": "%s/google/%s" % (GCE_URL, IMAGE) 
 	}
 	logging.debug(config)
-	# result = compute.instances().insert(project = PROJECT_ID, zone = zone, body = config).execute() # v1beta14 version
-	result = compute.instances().insert(project = PROJECT_ID, body = config).execute() # v1beta13 version
+	result = compute.instances().insert(project = PROJECT_ID, body = config).execute()
 	logging.debug(result)
 
 	# Clear instances cache:
@@ -281,26 +275,6 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 			self.response.out.write('<th>%s (max %s)</th>' % (key, str(treshold['max'])))
 		self.response.out.write('<th>Data</th></tr>')
 
-		# Code for currently non-working v1beta14:
-		#
-		#instances = {}
-		#
-		#for zone in zones():
-		#	instancesInZone = False
-		#
-		#	zoneInstances = compute.instances().list(project=PROJECT_ID, zone=zone['name']).execute().get('items', []);
-		#
-		#	for zoneInstance in zoneInstances:
-		#		instanceIP = ''
-		#		for networkInterface in zoneInstance['networkInterfaces']:
-		#			for accessConfig in networkInterface['accessConfigs']:
-		#				if accessConfig['type'] == 'ONE_TO_ONE_NAT' and accessConfig['name'] == 'External NAT':
-		#					instanceIP = accessConfig['natIP']
-		#		if instanceIP != '':
-		#			self.response.out.write('<tr><form action="/" method="POST"><td>' + zoneInstance['name'] + '</td><td><input type="hidden" name="ip" value="' + instanceIP + '" />' + instanceIP + '</td><td>@ ' + zone['name'] + '</td><td><input name="action" type="submit" value="Shutdown" /></td></form></tr>')
-		#			instancesInZone = True
-
-		# v1beta13 version:
 		for instance in instances():
 			self.response.out.write('<tr><form action="/" method="POST"><td>')
 			for key, zonegroup in ZONEGROUPS.iteritems():
