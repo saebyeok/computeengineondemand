@@ -43,7 +43,7 @@ Load will be tested per group zone, so if you need more instances running in Eur
 
 ### Active instance
 
-In each zone group, one server instance will be designated *active instance*. That is an instance that currently can handle new incoming connections without hitting the tresholds. So, in the ZONEGROUP configuration example above, there will be two active instances: One for the zone group *europe* and one for the zone group *america*.
+In each zone group, one server instance will be designated *active instance*. That is an instance that currently can handle new incoming connections without hitting the tresholds. So, in the ZONEGROUP configuration example above, there will be two active instances: One for the zone group `europe` and one for the zone group `america`.
 
 When the active instance in a zone group is changed, you may announce this to other servers. All addresses defined in the array ANNOUNCE_URLS will get a HTTP POST request with the IP of the currently active instances.
 
@@ -52,6 +52,11 @@ When the active instance in a zone group is changed, you may announce this to ot
 		'http://example.appspot.com/whatever'
 	]
 
+### Pushing arbitrary instance data
+
+Active instances may push arbitrary data to the ANNOUNCE_URLS servers. When reporting load, instances could add a POST variable called `data`. That information would then be sent to all ANNOUNCE_URLS if this instance is the *active instance* in it's zone group.
+
+	curl -F action=report -F connections=1800 -F messages=9000 -F traffic=90000000 -F data="some data that is important" http://APPENGINE_ID.appspot.com/report
 
 Setup / Install
 ---------------
