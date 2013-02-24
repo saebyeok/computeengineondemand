@@ -8,13 +8,22 @@ How it works
 
 ### Tresholds
 
-In the Python code, we are defining what to check when deciding wheather to start or stop instances.
+In the Python code, we are defining what measure points to use:
 
 	TRESHOLDS = {
 		'connections': { 'max': 2000, 'slope': 98, 'start': 95, 'stop': 90 },
 		'traffic': { 'max': 100000000, 'slope': 98, 'start': 95, 'stop': 90 },
 		'messages': { 'max': 10000, 'slope': 98, 'start': 95, 'stop': 90 }
 	}
+
+You can add any number of measure points and call them anything you like, instead of `connections`, `traffic` or `messages`.
+
+For each measure point, you must set:
+
+* `max` = The maximum allowed number. When an *active instance* hits this number, another instance will become active.
+* `slope` = If this server previously has the `max` and stopped being *active*, it must go down to this percentage of `max` until it can become the *active instance* again.
+* `start` = When the least loaded instance hits this percentage of `max`, then start a new instance. This new instance will not become active immediately, it is just started at this point to be prepared when the previously active server hits `max`.
+* `stop` = If any instance has less than this percentage of `max`, inactive instances should be shut down.
 
 > TODO: It would be nice with a web configuration interface for this, instead of hard coded variables in Python.
 
