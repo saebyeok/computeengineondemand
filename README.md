@@ -6,6 +6,30 @@ This Google AppEngine application will start and stop Google Compute Engine inst
 How it works
 ------------
 
+### Zone Groups
+
+In the configuration, you group any number of Compute Engine zones into a *zone group*, like this:
+
+	ZONEGROUPS = {
+		'europe': [ 'europe-west1-a', 'europe-west1-b' ],
+		'america': [ 'us-central1-a', 'us-central1-b', 'us-central2-a' ]
+	}
+
+Load will be tested per group zone, so if you need more instances running in Europe, new instances will start up in any of the zones in Europe.
+
+> TODO: Currently, instances are started in any random zone within the zone group, but we would like to do this with regard to scheduled downtime.
+
+### Active instance
+
+In each zone group, one server instance will be designated *active instance*. That is an instance that currently can handle new incoming connections without hitting the tresholds. So, in the ZONEGROUP configuration example above, there will be two active instances: One for the zone group `europe` and one for the zone group `america`.
+
+When the active instance in a zone group is changed, you may announce this to other servers. All addresses defined in the array ANNOUNCE_URLS will get a HTTP POST request with the IP of the currently active instances.
+
+	ANNOUNCE_URLS = [
+		'http://example.org/gce_announce',
+		'http://example.appspot.com/whatever'
+	]
+
 ### Tresholds
 
 In the Python code, we are defining what measure points to use:
@@ -36,30 +60,6 @@ Compute Engine instances should report their current load to computeengineondema
 Computeengineondemand will know which instance is reporting by the IP address.
 
 What HTTP POST variables to report (the load) is defined by the TRESHOLD configuration variable (see above).
-
-### Zone Groups
-
-In the configuration, you group any number of Compute Engine zones into a *zone group*, like this:
-
-	ZONEGROUPS = {
-		'europe': [ 'europe-west1-a', 'europe-west1-b' ],
-		'america': [ 'us-central1-a', 'us-central1-b', 'us-central2-a' ]
-	}
-
-Load will be tested per group zone, so if you need more instances running in Europe, new instances will start up in any of the zones in Europe.
-
-> TODO: Currently, instances are started in any random zone within the zone group, but we would like to do this with regard to scheduled downtime.
-
-### Active instance
-
-In each zone group, one server instance will be designated *active instance*. That is an instance that currently can handle new incoming connections without hitting the tresholds. So, in the ZONEGROUP configuration example above, there will be two active instances: One for the zone group `europe` and one for the zone group `america`.
-
-When the active instance in a zone group is changed, you may announce this to other servers. All addresses defined in the array ANNOUNCE_URLS will get a HTTP POST request with the IP of the currently active instances.
-
-	ANNOUNCE_URLS = [
-		'http://example.org/gce_announce',
-		'http://example.appspot.com/whatever'
-	]
 
 ### Pushing arbitrary instance data
 
