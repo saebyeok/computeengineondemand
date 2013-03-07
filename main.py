@@ -71,7 +71,7 @@ def loadReport(ip, load):
 		if ip == instance['ip']:
 			logging.debug("Got report request from instance at %s" % ip)
 			instanceLoad = memcache.get('load-' + instance['name']) # Get the load for the server
-			if ('data' in instanceLoad and 'data' not in load) or ('data' in instanceLoad and 'data' not in load) or ('data' in instanceLoad and 'data' in load and instanceLoad['data'] != load['data']):
+      if (instanceLoad is not None and 'data' in instanceLoad and 'data' not in load) or (instanceLoad is not None and 'data' in instanceLoad and 'data' not in load) or (instanceLoad is n    ot None and 'data' in instanceLoad and 'data' in load and instanceLoad['data'] != load['data']):
 				# Data string from instance changed. We should announce!
 				logging.debug("Data parameter from instance has changed.")
 				announce = True
@@ -287,7 +287,7 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 			instanceLoad = memcache.get('load-' + instance['name']) # Get the load for this server
 			for key, treshold in TRESHOLDS.iteritems():
 				self.response.out.write('<td>')
-				if instanceLoad is not None and key in instanceLoad:
+        if instanceLoad is not None and key in instanceLoad and instanceLoad[key]:
 					self.response.out.write(instanceLoad[key] + ' (' + str(int(float(instanceLoad[key]) / float(treshold['max']) * 100.0)) + '%)')
 				else:
 					self.response.out.write('-')
