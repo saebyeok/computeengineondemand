@@ -71,7 +71,7 @@ def loadReport(ip, load):
 		if ip == instance['ip']:
 			logging.debug("Got report request from instance at %s" % ip)
 			instanceLoad = memcache.get('load-' + instance['name']) # Get the load for the server
-			if (instanceLoad is not None and 'data' in instanceLoad and 'data' not in load) or (instanceLoad is not None and 'data' in instanceLoad and 'data' not in load) or (instanceLoad is n    ot None and 'data' in instanceLoad and 'data' in load and instanceLoad['data'] != load['data']):
+			if (instanceLoad is not None and 'data' in instanceLoad and 'data' not in load) or (instanceLoad is not None and 'data' in instanceLoad and 'data' not in load) or (instanceLoad is not None and 'data' in instanceLoad and 'data' in load and instanceLoad['data'] != load['data']):
 				# Data string from instance changed. We should announce!
 				logging.debug("Data parameter from instance has changed.")
 				announce = True
