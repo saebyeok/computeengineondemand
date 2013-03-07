@@ -14,16 +14,14 @@ from django.utils import simplejson as json
 from random import choice
 from google.appengine.api import urlfetch
 from google.appengine.api import users
+from google.appengine.ext import db
 
 # Some configuration:
 PROJECT_ID = 'turnserver'
 API_VERSION = 'v1beta13'
 GCE_URL = 'https://www.googleapis.com/compute/%s/projects' % (API_VERSION)
 GCE_PROJECT_URL = GCE_URL + '/' + PROJECT_ID;
-IMAGE = 'images/centos-6-v20130104'
-ANNOUNCE_URLS = [
-	'http://dev.klandestino.se/gce_announce'
-]
+IMAGE = 'google/images/centos-6-v20130104'
 TRESHOLDS = {
 	'connections': { 'max': 2000, 'slope': 98, 'start': 95, 'stop': 90 },
 	'traffic': { 'max': 100, 'slope': 98, 'start': 95, 'stop': 90 },
@@ -38,6 +36,35 @@ ZONEGROUPS = { # Load will checked within each zone group, adding new servers in
 credentials = AppAssertionCredentials(scope = 'https://www.googleapis.com/auth/compute')
 http = credentials.authorize(httplib2.Http(memcache))
 compute = build('compute', API_VERSION, http = http)
+
+class ProjectConfig(db.Model):
+	announceUrls = db.StringListProperty()
+
+def config(projectId):
+	c = ProjectConfig.get_by_key_name(projectId)
+	if not c:
+		c = ProjectConfig(key_name = projectId)
+		c.announceUrls = []
+	return c
+
+def addAnnounceUrl(projectId, url):
+	c = config(projectId)
+	for announceUrl in c.announceUrls:
+		if announceUrl == url:
+			return True
+	c.announceUrls.append(url)
+	c.put()
+	return True
+
+def removeAnnounceUrl(projectId, url):
+	announceUrls = []
+	c = config(projectId)
+	for announceUrl in c.announceUrls:
+		if announceUrl != url:
+			announceUrls.append(announceUrl)
+	c.announceUrls = announceUrls
+	c.put()
+	return True
 
 def zones(): # Returns a list with all available zone names. Caching the data in global _zones variable.
 	zones = compute.zones().list(project = PROJECT_ID).execute().get('items', []);
@@ -173,7 +200,7 @@ def announceActiveServers():
 
 	logging.debug('Announcing our instances');
 
-	# Make HTTP POST request to the ANNOUNCE_URLS with active ip:s for each zonegroup.
+	# Make HTTP POST request to the announce urls with active ip:s for each zonegroup.
 	payload = {}
 	for key, zonegroup in ZONEGROUPS.iteritems():
 		instance = memcache.get("active-server-" + key)
@@ -185,7 +212,7 @@ def announceActiveServers():
 			if instanceLoad is not None and 'data' in instanceLoad:
 				payload[key + "_data"] = instanceLoad['data']
 
-	for url in ANNOUNCE_URLS:
+	for url in config(PROJECT_ID).announceUrls:
 		logging.debug(' - Announcing to: %s' % url);
 		urlfetch.fetch(
 			url = url,
@@ -229,7 +256,7 @@ def startInstance(zone): # Start a new server in a given zone.
 		},
 		"machineType": "%s/machineTypes/n1-standard-1" % (GCE_PROJECT_URL),
 		"zone": "%s/zones/%s" % (GCE_PROJECT_URL, zone),
-		"image": "%s/google/%s" % (GCE_URL, IMAGE) 
+		"image": "%s/%s" % (GCE_URL, IMAGE) 
 	}
 	logging.debug(config)
 	result = compute.instances().insert(project = PROJECT_ID, body = config).execute()
@@ -311,6 +338,23 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 		#self.response.out.write(compute.machineTypes().list(project = PROJECT_ID).execute().get('items', []));
 		# self.response.out.write(compute.networks().list(project = PROJECT_ID).execute().get('items', []));
 
+		self.response.out.write('<h2>Configuration</h2>')
+		self.response.out.write('<h3>Current announce URLs</h3>')
+		self.response.out.write('<p>Those URLs should listen for HTTP POST requests with the following POST vars: ');
+		self.response.out.write('</p>')
+		self.response.out.write('<table><tr><th>URL</th></tr>')
+		urls = config(PROJECT_ID).announceUrls
+		if len(urls) == 0:
+			self.response.out.write('<tr><td>-</td></tr>')
+		else:
+			for url in urls:
+				self.response.out.write('<tr><form action="/" method="POST"><td>' + url + '</td>')
+				self.response.out.write('<td><input type="hidden" name="url" value="' + url + '" /><input type="submit" name="action" value="Remove URL" /></td>')
+				self.response.out.write('</form></tr>')
+		self.response.out.write('</table>')
+
+		self.response.out.write('<p><form action="/" method="POST">Add new URL:<br /><input type="text" name="url" value="http://" /><br /><input type="submit" name="action" value="Add URL" /></form></p>')
+
 		self.response.out.write('<h2>Report load</h2>')
 		self.response.out.write('<h3>Example</h3>')
 		self.response.out.write('<pre>curl -F action=report ')
@@ -334,6 +378,10 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 				startInstance(zone=self.request.get('zone'))
 			elif action == 'Shutdown':
 				shutdownInstance(name=self.request.get('instance'))
+			elif action == 'Add URL':
+				addAnnounceUrl(PROJECT_ID, url=self.request.get('url'))
+			elif action == 'Remove URL':
+				removeAnnounceUrl(PROJECT_ID, url=self.request.get('url'))
 			self.response.set_status(303)
 			self.response.headers['Location'] = '/'
 
