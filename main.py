@@ -28,10 +28,6 @@ TRESHOLDS = {
 	'traffic': { 'max': 100, 'slope': 98, 'start': 95, 'stop': 90 },
 	'messages': { 'max': 10000, 'slope': 98, 'start': 95, 'stop': 90 }
 }
-ZONEGROUPS = { # Load will checked within each zone group, adding new servers in random zone within the group.
-	'europe-west': [ 'europe-west1-a', 'europe-west1-b' ],
-	'us-central': [ 'us-central1-a', 'us-central1-b', 'us-central2-a' ]
-}
 
 # Build our connection to the Compute Engine API:
 credentials = AppAssertionCredentials(scope = 'https://www.googleapis.com/auth/compute')
