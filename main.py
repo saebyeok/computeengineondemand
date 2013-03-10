@@ -15,6 +15,7 @@ from random import choice
 from google.appengine.api import urlfetch
 from google.appengine.api import users
 from google.appengine.ext import db
+import pickle
 
 # Some configuration:
 PROJECT_ID = 'turnserver'
@@ -37,14 +38,44 @@ credentials = AppAssertionCredentials(scope = 'https://www.googleapis.com/auth/c
 http = credentials.authorize(httplib2.Http(memcache))
 compute = build('compute', API_VERSION, http = http)
 
+class DictProperty(db.Property):
+	data_type = dict
+
+	def get_value_for_datastore(self, model_instance):
+		value = super(DictProperty, self).get_value_for_datastore(model_instance)
+		return db.Blob(pickle.dumps(value))
+
+	def make_value_from_datastore(self, value):
+		if value is None:
+			return dict()
+		return pickle.loads(value)
+
+	def default_value(self):
+		if self.default is None:
+			return dict()
+		else:
+			return super(DictProperty, self).default_value().copy()
+
+	def validate(self, value):
+		if not isinstance(value, dict):
+			raise db.BadValueError('Property %s needs to be convertible to a dict instance (%s) of class dict' % (self.name, value))
+		return super(DictProperty, self).validate(value)
+
+	def empty(self, value):
+		return value is None
+
 class ProjectConfig(db.Model):
 	announceUrls = db.StringListProperty()
+	zoneGroups = db.StringListProperty()
+	zoning = DictProperty()
 
 def config(projectId):
 	c = ProjectConfig.get_by_key_name(projectId)
 	if not c:
 		c = ProjectConfig(key_name = projectId)
 		c.announceUrls = []
+		c.zoneGroups = []
+		c.zoning = {}
 	return c
 
 def addAnnounceUrl(projectId, url):
@@ -63,6 +94,39 @@ def removeAnnounceUrl(projectId, url):
 		if announceUrl != url:
 			announceUrls.append(announceUrl)
 	c.announceUrls = announceUrls
+	c.put()
+	return True
+
+def zoneGroups(projectId):
+	return config(projectId).zoneGroups
+
+def zoningConfig(projectId):
+	zoning = config(projectId).zoning
+	r = {}
+	for zoneGroup in zoneGroups(projectId):
+		r[zoneGroup] = []
+	for zone in zoning:
+		zoneGroup = zoning[zone]
+		if zoneGroup in r:
+			r[zoneGroup].append(zone)
+	return r
+
+def addZoneGroup(projectId, name):
+	c = config(projectId)
+	for zoneGroup in c.zoneGroups:
+		if zoneGroup == name:
+			return True
+	c.zoneGroups.append(name)
+	c.put()
+	return True
+
+def removeZoneGroup(projectId, name):
+	zoneGroups = []
+	c = config(projectId)
+	for zoneGroup in c.zoneGroups:
+		if zoneGroup != name:
+			zoneGroups.append(zoneGroup)
+	c.zoneGroups = zoneGroups
 	c.put()
 	return True
 
@@ -113,7 +177,8 @@ def loadReport(ip, load):
 
 def reconsiderServers():
 	announce = False
-	for key, zones in ZONEGROUPS.iteritems():
+	zoning = zoningConfig(PROJECT_ID)
+	for key, zones in zoning.iteritems():
 		instancesInZoneGroup = []
 		for instance in instances(): # Loop all running instances
 			if instance['zone'] in zones:
@@ -129,9 +194,10 @@ def reconsiderServers():
 	return announce # Return wheather we should announce a change?
 
 def addServersInZoneGroup(zonegroup, instancesInZoneGroup):
+	zoning = zoningConfig(PROJECT_ID)
 	if len(instancesInZoneGroup) == 0:
 		logging.debug('Starting instance in zonegroup ' + zonegroup + ' since there are no instances in that zone group.')
-		startInstance(zone = choice(ZONEGROUPS[zonegroup]))
+		startInstance(zone = choice(zoning[zonegroup]))
 		return
 	instanceLoad = memcache.get('load-' + instancesInZoneGroup[-1]['name']) # Get the load for the last started server
 	if instanceLoad == None:
@@ -142,7 +208,7 @@ def addServersInZoneGroup(zonegroup, instancesInZoneGroup):
 			# Yes we are over the treshold for starting a new server.
 			logging.debug(key + ' for instance ' + instancesInZoneGroup[-1]['name'] + ' is ' + instanceLoad[key] + ', which is over treshold ' + str(int(treshold['max'] / 100.0 * treshold['start'])))
 			logging.debug('Starting instance in zonegroup ' + zonegroup + ' because the last started instance is over the start treshold.')
-			startInstance(zone = choice(ZONEGROUPS[zonegroup]))
+			startInstance(zone = choice(zoning[zonegroup]))
 			return
 
 def destroyServersInZoneGroup(zonegroup, instancesInZoneGroup):
@@ -198,11 +264,13 @@ def setActiveServerInZoneGroup(zonegroup, instancesInZoneGroup):
 
 def announceActiveServers():
 
+	zoning = zoningConfig(PROJECT_ID)
+
 	logging.debug('Announcing our instances');
 
 	# Make HTTP POST request to the announce urls with active ip:s for each zonegroup.
 	payload = {}
-	for key, zonegroup in ZONEGROUPS.iteritems():
+	for key, zonegroup in zoning.iteritems():
 		instance = memcache.get("active-server-" + key)
 		if instance is not None and 'ip' in instance:
 			payload[key] = instance['ip']
@@ -292,6 +360,8 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 		if not self.is_authorized():
 			return
 
+		zoning = zoningConfig(PROJECT_ID)
+
 		self.response.out.write('<h1>Administration</h1>')
 		self.response.out.write('<p><a href="' + users.create_logout_url(self.request.uri) + '">Log out.</a></p>')
 
@@ -304,7 +374,7 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 
 		for instance in instances():
 			self.response.out.write('<tr><form action="/" method="POST"><td>')
-			for key, zonegroup in ZONEGROUPS.iteritems():
+			for key, zonegroup in zoning.iteritems():
 				if instance['zone'] in zonegroup:
 					active = memcache.get('active-server-' + key)
 					if active is not None and active['name'] == instance['name']:
@@ -336,9 +406,47 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 
 		# Debug stuff:
 		#self.response.out.write(compute.machineTypes().list(project = PROJECT_ID).execute().get('items', []));
-		# self.response.out.write(compute.networks().list(project = PROJECT_ID).execute().get('items', []));
+		#self.response.out.write(compute.zones().list(project = PROJECT_ID).execute().get('items', []));
 
 		self.response.out.write('<h2>Configuration</h2>')
+
+		self.response.out.write('<h3>Zone Groups</h3>')
+		zgs = zoneGroups(PROJECT_ID)
+		self.response.out.write('<ul>')
+		for zg in zgs:
+			self.response.out.write('<li>' + zg + '</li>')
+		self.response.out.write('</ul>')
+
+		self.response.out.write('<p><form action="/" method="POST">Add a new zone group:<br/><input type="text" name="name" /><input type="submit" name="action" value="Add Zone Group" /></form></p>')
+
+		self.response.out.write('<p><form action="/" method="POST">Remove a zone group:<br /><select name="name">');
+		for zg in zgs:
+			self.response.out.write('<option value="' + zg + '">' + zg + '</option>')
+		self.response.out.write('</select><input type="submit" name="action" value="Remove Zone Group" /></form></p>')
+
+		self.response.out.write('<h3>Zoning</h3>')
+
+		self.response.out.write('<table><form action="/" method="POST"><tr><th>Zone</th>')
+		for zg in zgs:
+			self.response.out.write('<th>Zone Group ' + zg + '</th>')
+		self.response.out.write('<th>No group</th></tr>')
+		for zone in zones():
+			self.response.out.write('<tr><td>' + zone['name'] + '</td>')
+			isnozg = True
+			for zg in zgs:
+				self.response.out.write('<td><input type="radio" name="' + zone['name'] + '" value="' + zg + '" ')
+				if zg in zoning and zone['name'] in zoning[zg]:
+					self.response.out.write('checked="checked" ')
+					isnozg = False
+				self.response.out.write('/></td>')
+			self.response.out.write('<td><input type="radio" name="' + zone['name'] + '" ')
+			if isnozg:
+				self.response.out.write('checked="checked" ')
+			self.response.out.write('/></td>')
+			self.response.out.write('</tr>')
+		self.response.out.write('<tr><td></td><td colspan="' + str(1 + len(zgs)) + '"><input type="submit" name="action" value="Save Zone Groups" /></td></tr>')
+		self.response.out.write('</form></table>')
+
 		self.response.out.write('<h3>Current announce URLs</h3>')
 		self.response.out.write('<p>Those URLs should listen for HTTP POST requests with the following POST vars: ');
 		self.response.out.write('</p>')
@@ -382,6 +490,18 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 				addAnnounceUrl(PROJECT_ID, url=self.request.get('url'))
 			elif action == 'Remove URL':
 				removeAnnounceUrl(PROJECT_ID, url=self.request.get('url'))
+			elif action == 'Add Zone Group':
+				addZoneGroup(PROJECT_ID, name=self.request.get('name'))
+			elif action == 'Remove Zone Group':
+				removeZoneGroup(PROJECT_ID, name=self.request.get('name'))
+			elif action == 'Save Zone Groups':
+				c = config(PROJECT_ID)
+				zoning = {}
+				for zone in zones():
+					zoning[zone['name']] = self.request.get(zone['name'])
+				c.zoning = zoning
+				c.put()
+				
 			self.response.set_status(303)
 			self.response.headers['Location'] = '/'
 
