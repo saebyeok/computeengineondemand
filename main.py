@@ -22,7 +22,6 @@ PROJECT_ID = 'turnserver'
 API_VERSION = 'v1beta13'
 GCE_URL = 'https://www.googleapis.com/compute/%s/projects' % (API_VERSION)
 GCE_PROJECT_URL = GCE_URL + '/' + PROJECT_ID;
-IMAGE = 'google/images/centos-6-v20130104'
 TRESHOLDS = {
 	'connections': { 'max': 2000, 'slope': 98, 'start': 95, 'stop': 90 },
 	'traffic': { 'max': 100, 'slope': 98, 'start': 95, 'stop': 90 },
@@ -64,6 +63,7 @@ class ProjectConfig(db.Model):
 	announceUrls = db.StringListProperty()
 	zoneGroups = db.StringListProperty()
 	zoning = DictProperty()
+	bootImage = db.StringProperty()
 
 def config(projectId):
 	c = ProjectConfig.get_by_key_name(projectId)
@@ -72,6 +72,7 @@ def config(projectId):
 		c.announceUrls = []
 		c.zoneGroups = []
 		c.zoning = {}
+		c.bootImage = ''
 	return c
 
 def addAnnounceUrl(projectId, url):
@@ -126,9 +127,13 @@ def removeZoneGroup(projectId, name):
 	c.put()
 	return True
 
-def zones(): # Returns a list with all available zone names. Caching the data in global _zones variable.
+def zones():
 	zones = compute.zones().list(project = PROJECT_ID).execute().get('items', []);
 	return zones
+
+def images():
+	images = compute.images().list(project = PROJECT_ID).execute().get('items', []);
+	return images
 
 def instances():
 	instances = []
@@ -288,7 +293,7 @@ def announceActiveServers():
 def startInstance(zone): # Start a new server in a given zone.
 	name = "instance-" + str(int(time.time())) + "-" + str(randint(1000, 9999))
 	memcache.set("status-" + name, 'starting')
-	config = {
+	c = {
 		"name": name,
 		"kind": 'compute#instance',
 		"disks": [],
@@ -320,10 +325,10 @@ def startInstance(zone): # Start a new server in a given zone.
 		},
 		"machineType": "%s/machineTypes/n1-standard-1" % (GCE_PROJECT_URL),
 		"zone": "%s/zones/%s" % (GCE_PROJECT_URL, zone),
-		"image": "%s/%s" % (GCE_URL, IMAGE) 
+		"image": "%s" % (config(PROJECT_ID).bootImage)
 	}
-	logging.debug(config)
-	result = compute.instances().insert(project = PROJECT_ID, body = config).execute()
+	logging.debug(c)
+	result = compute.instances().insert(project = PROJECT_ID, body = c).execute()
 	logging.debug(result)
 
 	# Clear instances cache:
@@ -402,9 +407,20 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 
 		# Debug stuff:
 		#self.response.out.write(compute.machineTypes().list(project = PROJECT_ID).execute().get('items', []));
-		#self.response.out.write(compute.zones().list(project = PROJECT_ID).execute().get('items', []));
+		#self.response.out.write(compute.images().list(project = PROJECT_ID).execute().get('items', []));
 
 		self.response.out.write('<h2>Configuration</h2>')
+
+		self.response.out.write('<form action="/" method="POST" />')
+		self.response.out.write('<h3>Instance Image</h3><p>Select which image to boot instances from.</p>')
+		self.response.out.write('<table><tr><th>Select</th><th>Image</th><th>Creation time</th></tr>')
+		for image in images():
+			self.response.out.write('<tr><td><input type="radio" name="link" value="' + image['selfLink'] + '" ')
+			if image['selfLink'] == config(PROJECT_ID).bootImage:
+				self.response.out.write('checked="checked" ')
+			self.response.out.write('/></td><td>' + image['name'] + '</td><td>' + image['creationTimestamp'] + '</td></tr>')
+		self.response.out.write('</table>')
+		self.response.out.write('<input type="submit" name="action" value="Select Boot Image" /></form>')
 
 		self.response.out.write('<h3>Zone Groups</h3>')
 		zgs = zoneGroups(PROJECT_ID)
@@ -496,6 +512,10 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 				for zone in zones():
 					zoning[zone['name']] = self.request.get(zone['name'])
 				c.zoning = zoning
+				c.put()
+			elif action == 'Select Boot Image':
+				c = config(PROJECT_ID)
+				c.bootImage = self.request.get('link')
 				c.put()
 				
 			self.response.set_status(303)
