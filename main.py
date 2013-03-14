@@ -412,6 +412,12 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 
 		self.response.out.write('<h2>Configuration</h2>')
 
+		self.response.out.write('<h3>Thresholds</h3>')
+		self.response.out.write('<table><tr><th>Name</th><th>Max</th><th>Slope (percent)</th><th>Start (percent)</th><th>Stop (percent)</th></tr>')
+		for key, treshold in TRESHOLDS.iteritems(): # Loop through all tresholds and test them:
+			self.response.out.write('<tr><td>' + key + '</td><td><input type="text" name="" value="' + str(treshold['max']) + '" /></td><td><input type="text" name="" value="' + str(treshold['slope']) + '" />%</td><td><input type="text" name="" value="' + str(treshold['start']) + '" />%</td><td><input type="text" name="" value="' + str(treshold['stop']) + '" />%</td></tr>')
+		self.response.out.write('</table>')
+
 		self.response.out.write('<form action="/" method="POST" />')
 		self.response.out.write('<h3>Instance Image</h3><p>Select which image to boot instances from.</p>')
 		self.response.out.write('<table><tr><th>Select</th><th>Image</th><th>Creation time</th></tr>')
