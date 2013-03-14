@@ -476,6 +476,8 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 
 		self.response.out.write('<p><form action="/" method="POST">Add new URL:<br /><input type="text" name="url" value="http://" /><br /><input type="submit" name="action" value="Add URL" /></form></p>')
 
+		self.response.out.write('<p><form action="/" method="POST"><input type="submit" name="action" value="Force Announcement Now" /></form></p>');
+
 		self.response.out.write('<h2>Report load</h2>')
 		self.response.out.write('<h3>Example</h3>')
 		self.response.out.write('<pre>curl -F action=report ')
@@ -518,6 +520,8 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 				c = config(PROJECT_ID)
 				c.bootImage = self.request.get('link')
 				c.put()
+			elif action == 'Force Announcement Now':
+				announceActiveServers()
 				
 			self.response.set_status(303)
 			self.response.headers['Location'] = '/'
