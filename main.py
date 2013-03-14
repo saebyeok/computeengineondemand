@@ -16,6 +16,7 @@ from google.appengine.api import urlfetch
 from google.appengine.api import users
 from google.appengine.ext import db
 import pickle
+import re
 
 # Some configuration:
 PROJECT_ID = 'turnserver'
@@ -205,7 +206,7 @@ def addServersInZoneGroup(zonegroup, instancesInZoneGroup):
 		# No data on this instance yet. Just w8 until it has reported it's load.
 		return
 	for key, treshold in TRESHOLDS.iteritems(): # Loop through all tresholds and test them:
-		if int(instanceLoad[key]) >= int(treshold['max'] / 100.0 * treshold['start']):
+		if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(treshold['max'] / 100.0 * treshold['start']):
 			# Yes we are over the treshold for starting a new server.
 			logging.debug(key + ' for instance ' + instancesInZoneGroup[-1]['name'] + ' is ' + instanceLoad[key] + ', which is over treshold ' + str(int(treshold['max'] / 100.0 * treshold['start'])))
 			logging.debug('Starting instance in zonegroup ' + zonegroup + ' because the last started instance is over the start treshold.')
@@ -220,7 +221,7 @@ def destroyServersInZoneGroup(zonegroup, instancesInZoneGroup):
 			if not okToShutDown:
 				okToShutDown = True
 				for key, treshold in TRESHOLDS.iteritems(): # Loop through all tresholds and test them:
-					if int(instanceLoad[key]) >= int(treshold['max'] / 100.0 * treshold['stop']):
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(treshold['max'] / 100.0 * treshold['stop']):
 						okToShutDown = False
 				if okToShutDown:
 					logging.debug('Server ' + instance['name'] + ' has resources left, so we could shut some other servers down.')
@@ -244,11 +245,11 @@ def setActiveServerInZoneGroup(zonegroup, instancesInZoneGroup):
 		if instanceLoad != None: # If we have no load info on this instance, it probably just started. `ok` stays True...
 			if instanceStatus == 'sloping':
 				for key, treshold in TRESHOLDS.iteritems(): # Loop through all treshold checks:
-					if int(instanceLoad[key]) > int(treshold['max'] / 100.0 * treshold['slope']): 
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(treshold['max'] / 100.0 * treshold['slope']): 
 						ok = False
 			else:
 				for key, treshold in TRESHOLDS.iteritems(): # Loop through all treshold checks:
-					if int(instanceLoad[key]) > treshold['max']: 
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > treshold['max']: 
 						ok = False
 						memcache.set("status-" + instance['name'], 'sloping')
 		if ok:
