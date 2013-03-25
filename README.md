@@ -21,7 +21,7 @@ Load will be tested per group zone, so if you need more instances running in Eur
 
 ### Active instance
 
-In each zone group, one server instance will be designated *active instance*. That is an instance that currently can handle new incoming connections without hitting the tresholds. So, in the ZONEGROUP configuration example above, there will be two active instances: One for the zone group `europe` and one for the zone group `america`.
+In each zone group, one server instance will be designated *active instance*. That is an instance that currently can handle new incoming connections without hitting the thresholds. So, in the ZONEGROUP configuration example above, there will be two active instances: One for the zone group `europe` and one for the zone group `america`.
 
 When the active instance in a zone group is changed, you may announce this to other servers. All addresses defined in the array ANNOUNCE_URLS will get a HTTP POST request with the IP of the currently active instances.
 
@@ -30,11 +30,11 @@ When the active instance in a zone group is changed, you may announce this to ot
 		'http://example.appspot.com/whatever'
 	]
 
-### Tresholds
+### Thresholds
 
 In the Python code, we are defining what measure points to use:
 
-	TRESHOLDS = {
+	THRESHOLDS = {
 		'connections': { 'max': 2000, 'slope': 98, 'start': 95, 'stop': 90 },
 		'traffic': { 'max': 100000000, 'slope': 98, 'start': 95, 'stop': 90 },
 		'messages': { 'max': 10000, 'slope': 98, 'start': 95, 'stop': 90 }
@@ -59,7 +59,7 @@ Compute Engine instances should report their current load to computeengineondema
 
 Computeengineondemand will know which instance is reporting by the IP address.
 
-What HTTP POST variables to report (the load) is defined by the TRESHOLD configuration variable (see above).
+What HTTP POST variables to report (the load) is defined by the THRESHOLD configuration variable (see above).
 
 ### Pushing arbitrary instance data
 
