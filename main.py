@@ -23,7 +23,7 @@ PROJECT_ID = 'turnserver'
 API_VERSION = 'v1beta13'
 GCE_URL = 'https://www.googleapis.com/compute/%s/projects' % (API_VERSION)
 GCE_PROJECT_URL = GCE_URL + '/' + PROJECT_ID;
-TRESHOLDS = {
+THRESHOLDS = {
 	'connections': { 'max': 2000, 'slope': 98, 'start': 95, 'stop': 90 },
 	'traffic': { 'max': 100, 'slope': 98, 'start': 95, 'stop': 90 },
 	'messages': { 'max': 10000, 'slope': 98, 'start': 95, 'stop': 90 }
@@ -65,6 +65,7 @@ class ProjectConfig(db.Model):
 	zoneGroups = db.StringListProperty()
 	zoning = DictProperty()
 	bootImage = db.StringProperty()
+	thresholds = DictProperty()
 
 def config(projectId):
 	c = ProjectConfig.get_by_key_name(projectId)
@@ -205,11 +206,11 @@ def addServersInZoneGroup(zonegroup, instancesInZoneGroup):
 	if instanceLoad == None:
 		# No data on this instance yet. Just w8 until it has reported it's load.
 		return
-	for key, treshold in TRESHOLDS.iteritems(): # Loop through all tresholds and test them:
-		if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(treshold['max'] / 100.0 * treshold['start']):
-			# Yes we are over the treshold for starting a new server.
-			logging.debug(key + ' for instance ' + instancesInZoneGroup[-1]['name'] + ' is ' + instanceLoad[key] + ', which is over treshold ' + str(int(treshold['max'] / 100.0 * treshold['start'])))
-			logging.debug('Starting instance in zonegroup ' + zonegroup + ' because the last started instance is over the start treshold.')
+	for key, threshold in THRESHOLDS.iteritems(): # Loop through all thresholds and test them:
+		if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(threshold['max'] / 100.0 * threshold['start']):
+			# Yes we are over the threshold for starting a new server.
+			logging.debug(key + ' for instance ' + instancesInZoneGroup[-1]['name'] + ' is ' + instanceLoad[key] + ', which is over threshold ' + str(int(threshold['max'] / 100.0 * threshold['start'])))
+			logging.debug('Starting instance in zonegroup ' + zonegroup + ' because the last started instance is over the start threshold.')
 			startInstance(zone = choice(zoning[zonegroup]))
 			return
 
@@ -220,13 +221,13 @@ def destroyServersInZoneGroup(zonegroup, instancesInZoneGroup):
 		if instanceLoad != None: # We have no load data on this machine.
 			if not okToShutDown:
 				okToShutDown = True
-				for key, treshold in TRESHOLDS.iteritems(): # Loop through all tresholds and test them:
-					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(treshold['max'] / 100.0 * treshold['stop']):
+				for key, threshold in THRESHOLDS.iteritems(): # Loop through all thresholds and test them:
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(threshold['max'] / 100.0 * threshold['stop']):
 						okToShutDown = False
 				if okToShutDown:
 					logging.debug('Server ' + instance['name'] + ' has resources left, so we could shut some other servers down.')
 			else:
-				# Previous server treshold told us it is okey to shut stuff down.
+				# Previous server threshold told us it is okey to shut stuff down.
 				# Now, just check there are no current connections to actually do it:
 				if int(instanceLoad['connections']) == 0:
 					logging.debug('Shutting down ' + instance['name'] + ' since there are resources left on other servers.')
@@ -244,12 +245,12 @@ def setActiveServerInZoneGroup(zonegroup, instancesInZoneGroup):
 		instanceStatus = memcache.get("status-" + instance['name'])
 		if instanceLoad != None: # If we have no load info on this instance, it probably just started. `ok` stays True...
 			if instanceStatus == 'sloping':
-				for key, treshold in TRESHOLDS.iteritems(): # Loop through all treshold checks:
-					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(treshold['max'] / 100.0 * treshold['slope']): 
+				for key, threshold in THRESHOLDS.iteritems(): # Loop through all threshold checks:
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(threshold['max'] / 100.0 * threshold['slope']): 
 						ok = False
 			else:
-				for key, treshold in TRESHOLDS.iteritems(): # Loop through all treshold checks:
-					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > treshold['max']: 
+				for key, threshold in THRESHOLDS.iteritems(): # Loop through all threshold checks:
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > threshold['max']: 
 						ok = False
 						memcache.set("status-" + instance['name'], 'sloping')
 		if ok:
@@ -370,8 +371,8 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 		# Output table with info on all current instances:
 		self.response.out.write('<h2>Instances</h2>')
 		self.response.out.write('<table><tr><th>Active in zonegroup</th><th>Name</th><th>IP</th><th>Zone</th>')
-		for key, treshold in TRESHOLDS.iteritems():
-			self.response.out.write('<th>%s (max %s)</th>' % (key, str(treshold['max'])))
+		for key, threshold in THRESHOLDS.iteritems():
+			self.response.out.write('<th>%s (max %s)</th>' % (key, str(threshold['max'])))
 		self.response.out.write('<th>Data</th></tr>')
 
 		for instance in instances():
@@ -384,10 +385,10 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 
 			self.response.out.write('</td><td>%s</td><td>%s</td><td>%s</td>' % (instance['name'], instance['ip'], instance['zone']))
 			instanceLoad = memcache.get('load-' + instance['name']) # Get the load for this server
-			for key, treshold in TRESHOLDS.iteritems():
+			for key, threshold in THRESHOLDS.iteritems():
 				self.response.out.write('<td>')
 				if instanceLoad is not None and key in instanceLoad and instanceLoad[key]:
-					self.response.out.write(instanceLoad[key] + ' (' + str(int(float(instanceLoad[key]) / float(treshold['max']) * 100.0)) + '%)')
+					self.response.out.write(instanceLoad[key] + ' (' + str(int(float(instanceLoad[key]) / float(threshold['max']) * 100.0)) + '%)')
 				else:
 					self.response.out.write('-')
 				self.response.out.write('</td>')
@@ -413,10 +414,12 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 		self.response.out.write('<h2>Configuration</h2>')
 
 		self.response.out.write('<h3>Thresholds</h3>')
+		self.response.out.write('<form action="/" method="POST">')
 		self.response.out.write('<table><tr><th>Name</th><th>Max</th><th>Slope (percent)</th><th>Start (percent)</th><th>Stop (percent)</th></tr>')
-		for key, treshold in TRESHOLDS.iteritems(): # Loop through all tresholds and test them:
-			self.response.out.write('<tr><td>' + key + '</td><td><input type="text" name="" value="' + str(treshold['max']) + '" /></td><td><input type="text" name="" value="' + str(treshold['slope']) + '" />%</td><td><input type="text" name="" value="' + str(treshold['start']) + '" />%</td><td><input type="text" name="" value="' + str(treshold['stop']) + '" />%</td></tr>')
+		for key, threshold in THRESHOLDS.iteritems(): # Loop through all thresholds and test them:
+			self.response.out.write('<tr><td>' + key + '</td><td><input type="text" name="' + key + '-max" value="' + str(threshold['max']) + '" /></td><td><input type="text" name="' + key + '-slope" value="' + str(threshold['slope']) + '" />%</td><td><input type="text" name="' + key + '-start" value="' + str(threshold['start']) + '" />%</td><td><input type="text" name="' + key + '-stop" value="' + str(threshold['stop']) + '" />%</td></tr>')
 		self.response.out.write('</table>')
+		self.response.out.write('<p><input type="submit" name="action" value="Save Threshold Levels" /></p></form>')
 
 		self.response.out.write('<form action="/" method="POST" />')
 		self.response.out.write('<h3>Instance Image</h3><p>Select which image to boot instances from.</p>')
@@ -487,8 +490,8 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 		self.response.out.write('<h2>Report load</h2>')
 		self.response.out.write('<h3>Example</h3>')
 		self.response.out.write('<pre>curl -F action=report ')
-		for key, treshold in TRESHOLDS.iteritems():
-			self.response.out.write('-F ' + key + '=' + str(int(treshold['max'] / 100.0 * treshold['stop'])) + ' ')
+		for key, threshold in THRESHOLDS.iteritems():
+			self.response.out.write('-F ' + key + '=' + str(int(threshold['max'] / 100.0 * threshold['stop'])) + ' ')
 		self.response.out.write('%s/report' % (self.request.host_url))
 
 	def post(self):
