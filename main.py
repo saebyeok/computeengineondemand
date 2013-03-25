@@ -66,6 +66,7 @@ class ProjectConfig(db.Model):
 	zoning = DictProperty()
 	bootImage = db.StringProperty()
 	thresholds = DictProperty()
+	measurePoints = db.StringListProperty()
 
 def config(projectId):
 	c = ProjectConfig.get_by_key_name(projectId)
@@ -75,6 +76,8 @@ def config(projectId):
 		c.zoneGroups = []
 		c.zoning = {}
 		c.bootImage = ''
+		thresholds = {}
+		measurePoints = []
 	return c
 
 def addAnnounceUrl(projectId, url):
@@ -85,6 +88,10 @@ def addAnnounceUrl(projectId, url):
 	c.announceUrls.append(url)
 	c.put()
 	return True
+
+def measurePoints(projectId):
+	c = config(projectId)
+	return c.measurePoints
 
 def removeAnnounceUrl(projectId, url):
 	announceUrls = []
@@ -422,6 +429,16 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 		self.response.out.write('<p><input type="submit" name="action" value="Save Threshold Levels" /></p></form>')
 
 		self.response.out.write('<form action="/" method="POST" />')
+		self.response.out.write('<p>New measure point: <input type="text" name="name" /><input type="submit" name="action" value="Add Measure Point" /></p></form>')
+
+		self.response.out.write('<form action="/" method="POST" />')
+		self.response.out.write('Remove Measure Point:<br /><select name="name">');
+		for measurePoint in measurePoints(PROJECT_ID):
+			self.response.out.write('<option value="' + measurePoint + '">' + measurePoint + '</option>')
+		self.response.out.write('</select><br />');
+		self.response.out.write('<input type="submit" name="action" value="Remove Measure Point" /></form>');
+
+		self.response.out.write('<form action="/" method="POST" />')
 		self.response.out.write('<h3>Instance Image</h3><p>Select which image to boot instances from.</p>')
 		self.response.out.write('<table><tr><th>Select</th><th>Image</th><th>Creation time</th></tr>')
 		for image in images():
@@ -531,6 +548,18 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 				c.put()
 			elif action == 'Force Announcement Now':
 				announceActiveServers()
+			elif action == 'Add Measure Point':
+				c = config(PROJECT_ID)
+				c.measurePoints.append(self.request.get('name'))
+				c.put()
+			elif action == 'Remove Measure Point':
+				c = config(PROJECT_ID)
+				mp = []
+				for measurePoint in measurePoints(PROJECT_ID):
+					if measurePoint != self.request.get('name'):
+						mp.append(measurePoint)
+				c.measurePoints = mp
+				c.put()
 				
 			self.response.set_status(303)
 			self.response.headers['Location'] = '/'
