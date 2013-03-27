@@ -25,7 +25,7 @@ GCE_URL = 'https://www.googleapis.com/compute/%s/projects' % (API_VERSION)
 GCE_PROJECT_URL = GCE_URL + '/' + PROJECT_ID;
 THRESHOLDS = {
 	'connections': { 'max': 2000, 'slope': 98, 'start': 95, 'stop': 90 },
-	'traffic': { 'max': 100, 'slope': 98, 'start': 95, 'stop': 90 },
+	'traffic': { 'max': 100000000, 'slope': 98, 'start': 95, 'stop': 90 },
 	'messages': { 'max': 10000, 'slope': 98, 'start': 95, 'stop': 90 }
 }
 
