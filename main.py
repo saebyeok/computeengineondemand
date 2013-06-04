@@ -8,8 +8,6 @@ from random import randint
 from apiclient.discovery import build
 from oauth2client.appengine import AppAssertionCredentials
 from google.appengine.api import memcache
-from google.appengine.ext import webapp
-from google.appengine.ext.webapp.util import run_wsgi_app
 from django.utils import simplejson as json
 from random import choice
 from google.appengine.api import urlfetch
@@ -17,6 +15,7 @@ from google.appengine.api import users
 from google.appengine.ext import db
 import pickle
 import re
+import webapp2
 
 # Some configuration:
 PROJECT_ID = 'turnserver'
@@ -24,10 +23,11 @@ API_VERSION = 'v1beta13'
 GCE_URL = 'https://www.googleapis.com/compute/%s/projects' % (API_VERSION)
 GCE_PROJECT_URL = GCE_URL + '/' + PROJECT_ID;
 THRESHOLDS = {
-	'connections': { 'max': 2000, 'slope': 98, 'start': 95, 'stop': 90 },
-	'traffic': { 'max': 100000000, 'slope': 98, 'start': 95, 'stop': 90 },
-	'messages': { 'max': 10000, 'slope': 98, 'start': 95, 'stop': 90 }
+	'connections': { 'max': 150, 'slope': 90, 'start': 95, 'stop': 85 },
+	'traffic': { 'max': 52428800, 'slope': 90, 'start': 95, 'stop': 85 },
+	'messages': { 'max': 10000, 'slope': 90, 'start': 95, 'stop': 85 }
 }
+
 
 # Build our connection to the Compute Engine API:
 credentials = AppAssertionCredentials(scope = 'https://www.googleapis.com/auth/compute')
@@ -354,7 +354,7 @@ def shutdownInstance(name): # Shut down a server with a specific IP.
 
 	return True
 
-class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming HTTP requests.
+class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming HTTP requests.
 
 	def is_authorized(self):
 		if users.is_current_user_admin():
@@ -564,9 +564,6 @@ class HttpRequestHandler(webapp.RequestHandler): # Class for handling incoming H
 			self.response.set_status(303)
 			self.response.headers['Location'] = '/'
 
-def main():
-	logging.getLogger().setLevel(logging.DEBUG)
-	run_wsgi_app(webapp.WSGIApplication([('/', HttpRequestHandler), ('/report', HttpRequestHandler)], debug = True))
-
-if __name__ == '__main__':
-	main()
+logging.getLogger().setLevel(logging.DEBUG)
+app = webapp2.WSGIApplication([('/', HttpRequestHandler), ('/report', HttpRequestHandler)], debug=True)
+	
