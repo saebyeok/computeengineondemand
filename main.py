@@ -200,9 +200,9 @@ def addServersInZoneGroup(zonegroup, instancesInZoneGroup):
 		# No data on this instance yet. Just w8 until it has reported it's load.
 		return
 	for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all thresholds and test them:
-		if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(threshold['max'] / 100.0 * threshold['start']):
+		if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(float(threshold['max']) / 100.0 * float(threshold['start'])):
 			# Yes we are over the threshold for starting a new server.
-			logging.debug(key + ' for instance ' + instancesInZoneGroup[-1]['name'] + ' is ' + instanceLoad[key] + ', which is over threshold ' + str(int(threshold['max'] / 100.0 * threshold['start'])))
+			logging.debug(key + ' for instance ' + instancesInZoneGroup[-1]['name'] + ' is ' + instanceLoad[key] + ', which is over threshold ' + str(int(float(threshold['max']) / 100.0 * float(threshold['start']))))
 			logging.debug('Starting instance in zonegroup ' + zonegroup + ' because the last started instance is over the start threshold.')
 			startInstance(zone = choice(zoning[zonegroup]))
 			return
@@ -215,7 +215,7 @@ def destroyServersInZoneGroup(zonegroup, instancesInZoneGroup):
 			if not okToShutDown:
 				okToShutDown = True
 				for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all thresholds and test them:
-					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(threshold['max'] / 100.0 * threshold['stop']):
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(float(threshold['max']) / 100.0 * float(threshold['stop'])):
 						okToShutDown = False
 				if okToShutDown:
 					logging.debug('Server ' + instance['name'] + ' has resources left, so we could shut some other servers down.')
@@ -239,11 +239,11 @@ def setActiveServerInZoneGroup(zonegroup, instancesInZoneGroup):
 		if instanceLoad != None: # If we have no load info on this instance, it probably just started. `ok` stays True...
 			if instanceStatus == 'sloping':
 				for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all threshold checks:
-					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(threshold['max'] / 100.0 * threshold['slope']): 
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(float(threshold['max']) / 100.0 * float(threshold['slope'])): 
 						ok = False
 			else:
 				for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all threshold checks:
-					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > threshold['max']: 
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(float(threshold['max'])): 
 						ok = False
 						memcache.set("status-" + instance['name'], 'sloping')
 		if ok:
