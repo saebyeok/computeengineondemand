@@ -19,7 +19,7 @@ import dictproperty
 
 # Some configuration:
 PROJECT_ID = 'turnserver'
-API_VERSION = 'v1beta13'
+API_VERSION = 'v1beta15'
 GCE_URL = 'https://www.googleapis.com/compute/%s/projects' % (API_VERSION)
 GCE_PROJECT_URL = GCE_URL + '/' + PROJECT_ID;
 THRESHOLDS = {
@@ -120,23 +120,24 @@ def images():
 
 def instances():
 	instances = []
-	for instance in compute.instances().list(project=PROJECT_ID).execute().get('items', []):
-		if instance["status"] == "PROVISIONING" or instance["status"] == "STAGING" or instance["status"] == "RUNNING":
-			if memcache.get('status-' + instance['name']) != 'stopping':
-				ip = '127.0.0.1' # Default - will show if no networkInterface is there yet.
-				if len(instance["networkInterfaces"][0]["accessConfigs"]) > 0 and 'natIP' in instance["networkInterfaces"][0]["accessConfigs"][0]:
-					ip = instance["networkInterfaces"][0]["accessConfigs"][0]["natIP"]
-				zone = instance["zone"].split('/')
-				zone = zone[-1] 
-				instances.append({
-					"name": instance["name"],
-					"zone": zone,
-					"ip": ip
-				})
-		elif instance["status"] == "TERMINATED":
-			# Terminated instances should be deleted to not occupy quota.
-			# Instances can become TERMINATED on datacenter maintenance, on instance crashes or virtualization host crashes.
-			shutdownInstance(instance["name"])
+	for z in zones():
+		for instance in compute.instances().list(project=PROJECT_ID, zone=z['name']).execute().get('items', []):
+			if instance["status"] == "PROVISIONING" or instance["status"] == "STAGING" or instance["status"] == "RUNNING":
+				if memcache.get('status-' + instance['name']) != 'stopping':
+					ip = '127.0.0.1' # Default - will show if no networkInterface is there yet.
+					if len(instance["networkInterfaces"][0]["accessConfigs"]) > 0 and 'natIP' in instance["networkInterfaces"][0]["accessConfigs"][0]:
+						ip = instance["networkInterfaces"][0]["accessConfigs"][0]["natIP"]
+					zone = instance["zone"].split('/')
+					zone = zone[-1] 
+					instances.append({
+						"name": instance["name"],
+						"zone": zone,
+						"ip": ip
+					})
+			elif instance["status"] == "TERMINATED":
+				# Terminated instances should be deleted to not occupy quota.
+				# Instances can become TERMINATED on datacenter maintenance, on instance crashes or virtualization host crashes.
+				shutdownInstance(instance["name"])
 
 	return instances
 
@@ -282,14 +283,14 @@ def startInstance(zone): # Start a new server in a given zone.
 		"disks": [],
 		"networkInterfaces": [
 			{
-				"kind": 'compute#instanceNetworkInterface',
+				"network": "%s/global/networks/default" % (GCE_PROJECT_URL),
 				"accessConfigs": [
 					{
+						"kind": "compute#accessConfig",
 						"name": "External NAT",
 						"type": "ONE_TO_ONE_NAT"
 					}
-				],
-				"network": "%s/networks/default" % (GCE_PROJECT_URL)
+				]
 			}
 		],
 		"serviceAccounts": [
@@ -306,12 +307,12 @@ def startInstance(zone): # Start a new server in a given zone.
 		"metadata": {
 			"items": []
 		},
-		"machineType": "%s/machineTypes/n1-standard-1" % (GCE_PROJECT_URL),
+		"machineType": "%s/zones/%s/machineTypes/n1-standard-1" % (GCE_PROJECT_URL, zone),
 		"zone": "%s/zones/%s" % (GCE_PROJECT_URL, zone),
 		"image": "%s" % (config(PROJECT_ID).bootImage)
 	}
 	logging.debug(c)
-	result = compute.instances().insert(project = PROJECT_ID, body = c).execute()
+	result = compute.instances().insert(project = PROJECT_ID, body = c, zone = zone).execute()
 	logging.debug(result)
 
 	# Clear instances cache:
@@ -323,8 +324,12 @@ def shutdownInstance(name): # Shut down a server with a specific IP.
 
 	logging.debug('Shutting down instance ' + name)
 
-	memcache.set("status-" + name, 'stopping')
-	compute.instances().delete(project = PROJECT_ID, instance = name).execute()
+	instncs = instances()
+	for i in instncs:
+		if i["name"] == name:
+			zone = i["zone"]
+			memcache.set("status-" + name, 'stopping')
+			compute.instances().delete(project = PROJECT_ID, instance = name, zone = zone).execute()
 
 	return True
 
