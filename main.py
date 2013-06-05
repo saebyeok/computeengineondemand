@@ -13,9 +13,9 @@ from random import choice
 from google.appengine.api import urlfetch
 from google.appengine.api import users
 from google.appengine.ext import db
-import pickle
 import re
 import webapp2
+import dictproperty
 
 # Some configuration:
 PROJECT_ID = 'turnserver'
@@ -34,38 +34,12 @@ credentials = AppAssertionCredentials(scope = 'https://www.googleapis.com/auth/c
 http = credentials.authorize(httplib2.Http(memcache))
 compute = build('compute', API_VERSION, http = http)
 
-class DictProperty(db.Property):
-	data_type = dict
-
-	def get_value_for_datastore(self, model_instance):
-		value = super(DictProperty, self).get_value_for_datastore(model_instance)
-		return db.Blob(pickle.dumps(value))
-
-	def make_value_from_datastore(self, value):
-		if value is None:
-			return dict()
-		return pickle.loads(value)
-
-	def default_value(self):
-		if self.default is None:
-			return dict()
-		else:
-			return super(DictProperty, self).default_value().copy()
-
-	def validate(self, value):
-		if not isinstance(value, dict):
-			raise db.BadValueError('Property %s needs to be convertible to a dict instance (%s) of class dict' % (self.name, value))
-		return super(DictProperty, self).validate(value)
-
-	def empty(self, value):
-		return value is None
-
 class ProjectConfig(db.Model):
 	announceUrls = db.StringListProperty()
 	zoneGroups = db.StringListProperty()
-	zoning = DictProperty()
+	zoning = dictproperty.DictProperty()
 	bootImage = db.StringProperty()
-	thresholds = DictProperty()
+	thresholds = dictproperty.DictProperty()
 	measurePoints = db.StringListProperty()
 
 def config(projectId):
