@@ -51,7 +51,7 @@ from oauth2client.anyjson import simplejson
 
 DEFAULT_CHUNK_SIZE = 512*1024
 
-MAX_URI_LENGTH = 4000
+MAX_URI_LENGTH = 2048
 
 
 class MediaUploadProgress(object):
@@ -617,6 +617,7 @@ class HttpRequest(object):
     self.http = http
     self.postproc = postproc
     self.resumable = resumable
+    self.response_callbacks = []
     self._in_error_state = False
 
     # Pull the multipart boundary out of the content-type header.
@@ -671,12 +672,25 @@ class HttpRequest(object):
         self.body = parsed.query
         self.headers['content-length'] = str(len(self.body))
 
-      resp, content = http.request(self.uri, method=self.method,
-                                   body=self.body,
-                                   headers=self.headers)
+      resp, content = http.request(str(self.uri), method=str(self.method),
+                                   body=self.body, headers=self.headers)
+      for callback in self.response_callbacks:
+        callback(resp)
       if resp.status >= 300:
         raise HttpError(resp, content, uri=self.uri)
     return self.postproc(resp, content)
+
+  @util.positional(2)
+  def add_response_callback(self, cb):
+    """add_response_headers_callback
+
+    Args:
+      cb: Callback to be called on receiving the response headers, of signature:
+
+      def cb(resp):
+        # Where resp is an instance of httplib2.Response
+    """
+    self.response_callbacks.append(cb)
 
   @util.positional(1)
   def next_chunk(self, http=None):
@@ -730,7 +744,7 @@ class HttpRequest(object):
       if resp.status == 200 and 'location' in resp:
         self.resumable_uri = resp['location']
       else:
-        raise ResumableUploadError("Failed to retrieve starting URI.")
+        raise ResumableUploadError(resp, content)
     elif self._in_error_state:
       # If we are in an error state then query the server for current state of
       # the upload by sending an empty PUT and reading the 'range' header in
@@ -1180,7 +1194,7 @@ class BatchHttpRequest(object):
 
     Args:
       http: httplib2.Http, an http object to be used in place of the one the
-        HttpRequest request object was constructed with.  If one isn't supplied
+        HttpRequest request object was constructed with. If one isn't supplied
         then use a http object from the requests in this batch.
 
     Returns:
@@ -1353,7 +1367,7 @@ class RequestMockBuilder(object):
 class HttpMock(object):
   """Mock of httplib2.Http"""
 
-  def __init__(self, filename, headers=None):
+  def __init__(self, filename=None, headers=None):
     """
     Args:
       filename: string, absolute filename to read response from
@@ -1361,10 +1375,19 @@ class HttpMock(object):
     """
     if headers is None:
       headers = {'status': '200 OK'}
-    f = file(filename, 'r')
-    self.data = f.read()
-    f.close()
-    self.headers = headers
+    if filename:
+      f = file(filename, 'r')
+      self.data = f.read()
+      f.close()
+    else:
+      self.data = None
+    self.response_headers = headers
+    self.headers = None
+    self.uri = None
+    self.method = None
+    self.body = None
+    self.headers = None
+
 
   def request(self, uri,
               method='GET',
@@ -1372,7 +1395,11 @@ class HttpMock(object):
               headers=None,
               redirections=1,
               connection_type=None):
-    return httplib2.Response(self.headers), self.data
+    self.uri = uri
+    self.method = method
+    self.body = body
+    self.headers = headers
+    return httplib2.Response(self.response_headers), self.data
 
 
 class HttpMockSequence(object):

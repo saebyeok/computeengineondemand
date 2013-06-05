@@ -27,6 +27,14 @@ __all__ = [
 import gflags
 import inspect
 import logging
+import types
+import urllib
+import urlparse
+
+try:
+  from urlparse import parse_qsl
+except ImportError:
+  from cgi import parse_qsl
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +49,7 @@ def positional(max_positional_args):
   """A decorator to declare that only the first N arguments my be positional.
 
   This decorator makes it easy to support Python 3 style key-word only
-  parameters.  For example, in Python 3 it is possible to write:
+  parameters. For example, in Python 3 it is possible to write:
 
     def fn(pos1, *, kwonly1=None, kwonly1=None):
       ...
@@ -91,7 +99,7 @@ def positional(max_positional_args):
   respectively, if a declaration is violated.
 
   Args:
-    max_positional_arguments: Maximum number of positional arguments.  All
+    max_positional_arguments: Maximum number of positional arguments. All
       parameters after the this index must be keyword only.
 
   Returns:
@@ -125,3 +133,60 @@ def positional(max_positional_args):
   else:
     args, _, _, defaults = inspect.getargspec(max_positional_args)
     return positional(len(args) - len(defaults))(max_positional_args)
+
+
+def scopes_to_string(scopes):
+  """Converts scope value to a string.
+
+  If scopes is a string then it is simply passed through. If scopes is an
+  iterable then a string is returned that is all the individual scopes
+  concatenated with spaces.
+
+  Args:
+    scopes: string or iterable of strings, the scopes.
+
+  Returns:
+    The scopes formatted as a single string.
+  """
+  if isinstance(scopes, types.StringTypes):
+    return scopes
+  else:
+    return ' '.join(scopes)
+
+
+def dict_to_tuple_key(dictionary):
+  """Converts a dictionary to a tuple that can be used as an immutable key.
+
+  The resulting key is always sorted so that logically equivalent dictionaries
+  always produce an identical tuple for a key.
+
+  Args:
+    dictionary: the dictionary to use as the key.
+
+  Returns:
+    A tuple representing the dictionary in it's naturally sorted ordering.
+  """
+  return tuple(sorted(dictionary.items()))
+
+
+def _add_query_parameter(url, name, value):
+  """Adds a query parameter to a url.
+
+  Replaces the current value if it already exists in the URL.
+
+  Args:
+    url: string, url to add the query parameter to.
+    name: string, query parameter name.
+    value: string, query parameter value.
+
+  Returns:
+    Updated query parameter. Does not update the url if value is None.
+  """
+  if value is None:
+    return url
+  else:
+    parsed = list(urlparse.urlparse(url))
+    q = dict(parse_qsl(parsed[4]))
+    q[name] = value
+    parsed[4] = urllib.urlencode(q)
+    return urlparse.urlunparse(parsed)

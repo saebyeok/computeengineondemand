@@ -49,6 +49,8 @@ class HttpError(Error):
       reason = data['error']['message']
     except (ValueError, KeyError):
       pass
+    if reason is None:
+      reason = ''
     return reason
 
   def __repr__(self):
@@ -63,6 +65,11 @@ class HttpError(Error):
 
 class InvalidJsonError(Error):
   """The JSON returned could not be parsed."""
+  pass
+
+
+class UnknownFileType(Error):
+  """File type unknown or unexpected."""
   pass
 
 
@@ -86,7 +93,7 @@ class MediaUploadSizeError(Error):
   pass
 
 
-class ResumableUploadError(Error):
+class ResumableUploadError(HttpError):
   """Error occured during resumable upload."""
   pass
 

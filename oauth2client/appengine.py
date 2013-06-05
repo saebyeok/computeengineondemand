@@ -34,6 +34,9 @@ from google.appengine.ext import db
 from google.appengine.ext import webapp
 from google.appengine.ext.webapp.util import login_required
 from google.appengine.ext.webapp.util import run_wsgi_app
+from oauth2client import GOOGLE_AUTH_URI
+from oauth2client import GOOGLE_REVOKE_URI
+from oauth2client import GOOGLE_TOKEN_URI
 from oauth2client import clientsecrets
 from oauth2client import util
 from oauth2client import xsrfutil
@@ -44,6 +47,14 @@ from oauth2client.client import Credentials
 from oauth2client.client import Flow
 from oauth2client.client import OAuth2WebServerFlow
 from oauth2client.client import Storage
+
+# TODO(dhermes): Resolve import issue.
+# This is a temporary fix for a Google internal issue.
+try:
+  from google.appengine.ext import ndb
+except ImportError:
+  ndb = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +87,27 @@ class SiteXsrfSecretKey(db.Model):
   """Storage for the sites XSRF secret key.
 
   There will only be one instance stored of this model, the one used for the
-  site.  """
+  site.
+  """
   secret = db.StringProperty()
+
+if ndb is not None:
+  class SiteXsrfSecretKeyNDB(ndb.Model):
+    """NDB Model for storage for the sites XSRF secret key.
+
+    Since this model uses the same kind as SiteXsrfSecretKey, it can be used
+    interchangeably. This simply provides an NDB model for interacting with the
+    same data the DB model interacts with.
+
+    There should only be one instance stored of this model, the one used for the
+    site.
+    """
+    secret = ndb.StringProperty()
+
+    @classmethod
+    def _get_kind(cls):
+      """Return the kind name for this class."""
+      return 'SiteXsrfSecretKey'
 
 
 def _generate_new_xsrf_secret_key():
@@ -126,16 +156,13 @@ class AppAssertionCredentials(AssertionCredentials):
     """Constructor for AppAssertionCredentials
 
     Args:
-      scope: string or list of strings, scope(s) of the credentials being
+      scope: string or iterable of strings, scope(s) of the credentials being
         requested.
     """
-    if type(scope) is list:
-      scope = ' '.join(scope)
-    self.scope = scope
+    self.scope = util.scopes_to_string(scope)
 
-    super(AppAssertionCredentials, self).__init__(
-        'ignored' # assertion_type is ignore in this subclass.
-        )
+    # Assertion type is no longer used, but still in the parent class signature.
+    super(AppAssertionCredentials, self).__init__(None)
 
   @classmethod
   def from_json(cls, json):
@@ -157,7 +184,8 @@ class AppAssertionCredentials(AssertionCredentials):
       AccessTokenRefreshError: When the refresh fails.
     """
     try:
-      (token, _) = app_identity.get_access_token(self.scope)
+      scopes = self.scope.split()
+      (token, _) = app_identity.get_access_token(scopes)
     except app_identity.Error, e:
       raise AccessTokenRefreshError(str(e))
     self.access_token = token
@@ -166,7 +194,7 @@ class AppAssertionCredentials(AssertionCredentials):
 class FlowProperty(db.Property):
   """App Engine datastore Property for Flow.
 
-  Utility property that allows easy storage and retreival of an
+  Utility property that allows easy storage and retrieval of an
   oauth2client.Flow"""
 
   # Tell what the user type is.
@@ -193,6 +221,33 @@ class FlowProperty(db.Property):
 
   def empty(self, value):
     return not value
+
+
+if ndb is not None:
+  class FlowNDBProperty(ndb.PickleProperty):
+    """App Engine NDB datastore Property for Flow.
+
+    Serves the same purpose as the DB FlowProperty, but for NDB models. Since
+    PickleProperty inherits from BlobProperty, the underlying representation of
+    the data in the datastore will be the same as in the DB case.
+
+    Utility property that allows easy storage and retrieval of an
+    oauth2client.Flow
+    """
+
+    def _validate(self, value):
+      """Validates a value as a proper Flow object.
+
+      Args:
+        value: A value to be set on the property.
+
+      Raises:
+        TypeError if the value is not an instance of Flow.
+      """
+      logger.info('validate: Got type %s', type(value))
+      if value is not None and not isinstance(value, Flow):
+        raise TypeError('Property %s must be convertible to a flow '
+                        'instance; received: %s.' % (self._name, value))
 
 
 class CredentialsProperty(db.Property):
@@ -241,14 +296,74 @@ class CredentialsProperty(db.Property):
     return value
 
 
-class StorageByKeyName(Storage):
-  """Store and retrieve a single credential to and from
-  the App Engine datastore.
+if ndb is not None:
+  # TODO(dhermes): Turn this into a JsonProperty and overhaul the Credentials
+  #                and subclass mechanics to use new_from_dict, to_dict,
+  #                from_dict, etc.
+  class CredentialsNDBProperty(ndb.BlobProperty):
+    """App Engine NDB datastore Property for Credentials.
 
-  This Storage helper presumes the Credentials
-  have been stored as a CredenialsProperty
-  on a datastore model class, and that entities
-  are stored by key_name.
+    Serves the same purpose as the DB CredentialsProperty, but for NDB models.
+    Since CredentialsProperty stores data as a blob and this inherits from
+    BlobProperty, the data in the datastore will be the same as in the DB case.
+
+    Utility property that allows easy storage and retrieval of Credentials and
+    subclasses.
+    """
+    def _validate(self, value):
+      """Validates a value as a proper credentials object.
+
+      Args:
+        value: A value to be set on the property.
+
+      Raises:
+        TypeError if the value is not an instance of Credentials.
+      """
+      logger.info('validate: Got type %s', type(value))
+      if value is not None and not isinstance(value, Credentials):
+        raise TypeError('Property %s must be convertible to a credentials '
+                        'instance; received: %s.' % (self._name, value))
+
+    def _to_base_type(self, value):
+      """Converts our validated value to a JSON serialized string.
+
+      Args:
+        value: A value to be set in the datastore.
+
+      Returns:
+        A JSON serialized version of the credential, else '' if value is None.
+      """
+      if value is None:
+        return ''
+      else:
+        return value.to_json()
+
+    def _from_base_type(self, value):
+      """Converts our stored JSON string back to the desired type.
+
+      Args:
+        value: A value from the datastore to be converted to the desired type.
+
+      Returns:
+        A deserialized Credentials (or subclass) object, else None if the
+            value can't be parsed.
+      """
+      if not value:
+        return None
+      try:
+        # Uses the from_json method of the implied class of value
+        credentials = Credentials.new_from_json(value)
+      except ValueError:
+        credentials = None
+      return credentials
+
+
+class StorageByKeyName(Storage):
+  """Store and retrieve a credential to and from the App Engine datastore.
+
+  This Storage helper presumes the Credentials have been stored as a
+  CredentialsProperty or CredentialsNDBProperty on a datastore model class, and
+  that entities are stored by key_name.
   """
 
   @util.positional(4)
@@ -256,15 +371,60 @@ class StorageByKeyName(Storage):
     """Constructor for Storage.
 
     Args:
-      model: db.Model, model class
+      model: db.Model or ndb.Model, model class
       key_name: string, key name for the entity that has the credentials
       property_name: string, name of the property that is a CredentialsProperty
-      cache: memcache, a write-through cache to put in front of the datastore
+        or CredentialsNDBProperty.
+      cache: memcache, a write-through cache to put in front of the datastore.
+        If the model you are using is an NDB model, using a cache will be
+        redundant since the model uses an instance cache and memcache for you.
     """
     self._model = model
     self._key_name = key_name
     self._property_name = property_name
     self._cache = cache
+
+  def _is_ndb(self):
+    """Determine whether the model of the instance is an NDB model.
+
+    Returns:
+      Boolean indicating whether or not the model is an NDB or DB model.
+    """
+    # issubclass will fail if one of the arguments is not a class, only need
+    # worry about new-style classes since ndb and db models are new-style
+    if isinstance(self._model, type):
+      if ndb is not None and issubclass(self._model, ndb.Model):
+        return True
+      elif issubclass(self._model, db.Model):
+        return False
+
+    raise TypeError('Model class not an NDB or DB model: %s.' % (self._model,))
+
+  def _get_entity(self):
+    """Retrieve entity from datastore.
+
+    Uses a different model method for db or ndb models.
+
+    Returns:
+      Instance of the model corresponding to the current storage object
+          and stored using the key name of the storage object.
+    """
+    if self._is_ndb():
+      return self._model.get_by_id(self._key_name)
+    else:
+      return self._model.get_by_key_name(self._key_name)
+
+  def _delete_entity(self):
+    """Delete entity from datastore.
+
+    Attempts to delete using the key_name stored on the object, whether or not
+    the given key is in the datastore.
+    """
+    if self._is_ndb():
+      ndb.Key(self._model, self._key_name).delete()
+    else:
+      entity_key = db.Key.from_path(self._model.kind(), self._key_name)
+      db.delete(entity_key)
 
   def locked_get(self):
     """Retrieve Credential from datastore.
@@ -277,16 +437,16 @@ class StorageByKeyName(Storage):
       if json:
         return Credentials.new_from_json(json)
 
-    credential = None
-    entity = self._model.get_by_key_name(self._key_name)
+    credentials = None
+    entity = self._get_entity()
     if entity is not None:
-      credential = getattr(entity, self._property_name)
-      if credential and hasattr(credential, 'set_store'):
-        credential.set_store(self)
+      credentials = getattr(entity, self._property_name)
+      if credentials and hasattr(credentials, 'set_store'):
+        credentials.set_store(self)
         if self._cache:
-          self._cache.set(self._key_name, credential.to_json())
+          self._cache.set(self._key_name, credentials.to_json())
 
-    return credential
+    return credentials
 
   def locked_put(self, credentials):
     """Write a Credentials to the datastore.
@@ -306,9 +466,7 @@ class StorageByKeyName(Storage):
     if self._cache:
       self._cache.delete(self._key_name)
 
-    entity = self._model.get_by_key_name(self._key_name)
-    if entity is not None:
-      entity.delete()
+    self._delete_entity()
 
 
 class CredentialsModel(db.Model):
@@ -317,6 +475,26 @@ class CredentialsModel(db.Model):
   Storage of the model is keyed by the user.user_id().
   """
   credentials = CredentialsProperty()
+
+
+if ndb is not None:
+  class CredentialsNDBModel(ndb.Model):
+    """NDB Model for storage of OAuth 2.0 Credentials
+
+    Since this model uses the same kind as CredentialsModel and has a property
+    which can serialize and deserialize Credentials correctly, it can be used
+    interchangeably with a CredentialsModel to access, insert and delete the
+    same entities. This simply provides an NDB model for interacting with the
+    same data the DB model interacts with.
+
+    Storage of the model is keyed by the user.user_id().
+    """
+    credentials = CredentialsNDBProperty()
+
+    @classmethod
+    def _get_kind(cls):
+      """Return the kind name for this class."""
+      return 'CredentialsModel'
 
 
 def _build_state_value(request_handler, user):
@@ -387,11 +565,13 @@ class OAuth2Decorator(object):
 
   @util.positional(4)
   def __init__(self, client_id, client_secret, scope,
-               auth_uri='https://accounts.google.com/o/oauth2/auth',
-               token_uri='https://accounts.google.com/o/oauth2/token',
+               auth_uri=GOOGLE_AUTH_URI,
+               token_uri=GOOGLE_TOKEN_URI,
+               revoke_uri=GOOGLE_REVOKE_URI,
                user_agent=None,
                message=None,
                callback_path='/oauth2callback',
+               token_response_param=None,
                **kwargs):
 
     """Constructor for OAuth2Decorator
@@ -399,11 +579,13 @@ class OAuth2Decorator(object):
     Args:
       client_id: string, client identifier.
       client_secret: string client secret.
-      scope: string or list of strings, scope(s) of the credentials being
+      scope: string or iterable of strings, scope(s) of the credentials being
         requested.
       auth_uri: string, URI for authorization endpoint. For convenience
         defaults to Google's endpoints but any OAuth 2.0 provider can be used.
       token_uri: string, URI for token endpoint. For convenience
+        defaults to Google's endpoints but any OAuth 2.0 provider can be used.
+      revoke_uri: string, URI for revoke endpoint. For convenience
         defaults to Google's endpoints but any OAuth 2.0 provider can be used.
       user_agent: string, User agent of your application, default to None.
       message: Message to display if there are problems with the OAuth 2.0
@@ -412,6 +594,10 @@ class OAuth2Decorator(object):
       callback_path: string, The absolute path to use as the callback URI. Note
         that this must match up with the URI given when registering the
         application in the APIs Console.
+      token_response_param: string. If provided, the full JSON response
+        to the access token request will be encoded and included in this query
+        parameter in the callback URI. This is useful with providers (e.g.
+        wordpress.com) that include extra fields that the client may want.
       **kwargs: dict, Keyword arguments are be passed along as kwargs to the
         OAuth2WebServerFlow constructor.
     """
@@ -419,14 +605,16 @@ class OAuth2Decorator(object):
     self.credentials = None
     self._client_id = client_id
     self._client_secret = client_secret
-    self._scope = scope
+    self._scope = util.scopes_to_string(scope)
     self._auth_uri = auth_uri
     self._token_uri = token_uri
+    self._revoke_uri = revoke_uri
     self._user_agent = user_agent
     self._kwargs = kwargs
     self._message = message
     self._in_error = False
     self._callback_path = callback_path
+    self._token_response_param = token_response_param
 
   def _display_error_message(self, request_handler):
     request_handler.response.out.write('<html><body>')
@@ -489,8 +677,9 @@ class OAuth2Decorator(object):
                                       self._scope, redirect_uri=redirect_uri,
                                       user_agent=self._user_agent,
                                       auth_uri=self._auth_uri,
-                                      token_uri=self._token_uri, **self._kwargs)
-
+                                      token_uri=self._token_uri,
+                                      revoke_uri=self._revoke_uri,
+                                      **self._kwargs)
 
   def oauth_aware(self, method):
     """Decorator that sets up for OAuth 2.0 dance, but doesn't do it.
@@ -600,6 +789,12 @@ class OAuth2Decorator(object):
               CredentialsModel, user.user_id(), 'credentials').put(credentials)
           redirect_uri = _parse_state_value(str(self.request.get('state')),
                                             user)
+
+          if decorator._token_response_param and credentials.token_response:
+            resp_json = simplejson.dumps(credentials.token_response)
+            redirect_uri = util._add_query_parameter(
+                redirect_uri, decorator._token_response_param, resp_json)
+
           self.redirect(redirect_uri)
 
     return OAuth2Handler
@@ -647,7 +842,7 @@ class OAuth2DecoratorFromClientSecrets(OAuth2Decorator):
 
     Args:
       filename: string, File name of client secrets.
-      scope: string or list of strings, scope(s) of the credentials being
+      scope: string or iterable of strings, scope(s) of the credentials being
         requested.
       message: string, A friendly string to display to the user if the
         clientsecrets file is missing or invalid. The message may contain HTML
@@ -661,17 +856,21 @@ class OAuth2DecoratorFromClientSecrets(OAuth2Decorator):
         clientsecrets.TYPE_WEB, clientsecrets.TYPE_INSTALLED]:
       raise InvalidClientSecretsError(
           'OAuth2Decorator doesn\'t support this OAuth 2.0 flow.')
+    constructor_kwargs = {
+      'auth_uri': client_info['auth_uri'],
+      'token_uri': client_info['token_uri'],
+      'message': message,
+    }
+    revoke_uri = client_info.get('revoke_uri')
+    if revoke_uri is not None:
+      constructor_kwargs['revoke_uri'] = revoke_uri
     super(OAuth2DecoratorFromClientSecrets, self).__init__(
-              client_info['client_id'],
-              client_info['client_secret'],
-              scope,
-              auth_uri=client_info['auth_uri'],
-              token_uri=client_info['token_uri'],
-              message=message)
+        client_info['client_id'], client_info['client_secret'],
+        scope, **constructor_kwargs)
     if message is not None:
       self._message = message
     else:
-      self._message = "Please configure your application for OAuth 2.0"
+      self._message = 'Please configure your application for OAuth 2.0.'
 
 
 @util.positional(2)
@@ -694,4 +893,4 @@ def oauth2decorator_from_clientsecrets(filename, scope,
 
   """
   return OAuth2DecoratorFromClientSecrets(filename, scope,
-    message=message, cache=cache)
+                                          message=message, cache=cache)
