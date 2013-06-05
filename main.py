@@ -22,12 +22,6 @@ PROJECT_ID = 'turnserver'
 API_VERSION = 'v1beta15'
 GCE_URL = 'https://www.googleapis.com/compute/%s/projects' % (API_VERSION)
 GCE_PROJECT_URL = GCE_URL + '/' + PROJECT_ID;
-THRESHOLDS = {
-	'connections': { 'max': 150, 'slope': 90, 'start': 95, 'stop': 85 },
-	'traffic': { 'max': 52428800, 'slope': 90, 'start': 95, 'stop': 85 },
-	'messages': { 'max': 10000, 'slope': 90, 'start': 95, 'stop': 85 }
-}
-
 
 # Build our connection to the Compute Engine API:
 credentials = AppAssertionCredentials(scope = 'https://www.googleapis.com/auth/compute')
@@ -50,9 +44,26 @@ def config(projectId):
 		c.zoneGroups = []
 		c.zoning = {}
 		c.bootImage = ''
-		thresholds = {}
-		measurePoints = []
+		c.thresholds = {}
+		c.measurePoints = []
 	return c
+
+def thresholds(projectId):
+	c = config(projectId)
+	changed = False
+	ms = measurePoints(PROJECT_ID)
+	for measurePoint in ms:
+		if measurePoint not in c.thresholds:
+			c.thresholds[measurePoint] = {
+				'max': 1000000000,
+				'slope': 90,
+				'start': 95,
+				'stop': 85
+			}
+			changed = True
+	if changed:
+		c.put()
+	return c.thresholds
 
 def addAnnounceUrl(projectId, url):
 	c = config(projectId)
@@ -188,7 +199,7 @@ def addServersInZoneGroup(zonegroup, instancesInZoneGroup):
 	if instanceLoad == None:
 		# No data on this instance yet. Just w8 until it has reported it's load.
 		return
-	for key, threshold in THRESHOLDS.iteritems(): # Loop through all thresholds and test them:
+	for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all thresholds and test them:
 		if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(threshold['max'] / 100.0 * threshold['start']):
 			# Yes we are over the threshold for starting a new server.
 			logging.debug(key + ' for instance ' + instancesInZoneGroup[-1]['name'] + ' is ' + instanceLoad[key] + ', which is over threshold ' + str(int(threshold['max'] / 100.0 * threshold['start'])))
@@ -203,7 +214,7 @@ def destroyServersInZoneGroup(zonegroup, instancesInZoneGroup):
 		if instanceLoad != None: # We have no load data on this machine.
 			if not okToShutDown:
 				okToShutDown = True
-				for key, threshold in THRESHOLDS.iteritems(): # Loop through all thresholds and test them:
+				for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all thresholds and test them:
 					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) >= int(threshold['max'] / 100.0 * threshold['stop']):
 						okToShutDown = False
 				if okToShutDown:
@@ -227,11 +238,11 @@ def setActiveServerInZoneGroup(zonegroup, instancesInZoneGroup):
 		instanceStatus = memcache.get("status-" + instance['name'])
 		if instanceLoad != None: # If we have no load info on this instance, it probably just started. `ok` stays True...
 			if instanceStatus == 'sloping':
-				for key, threshold in THRESHOLDS.iteritems(): # Loop through all threshold checks:
+				for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all threshold checks:
 					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(threshold['max'] / 100.0 * threshold['slope']): 
 						ok = False
 			else:
-				for key, threshold in THRESHOLDS.iteritems(): # Loop through all threshold checks:
+				for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all threshold checks:
 					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > threshold['max']: 
 						ok = False
 						memcache.set("status-" + instance['name'], 'sloping')
@@ -357,7 +368,7 @@ class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming 
 		# Output table with info on all current instances:
 		self.response.out.write('<h2>Instances</h2>')
 		self.response.out.write('<table><tr><th>Active in zonegroup</th><th>Name</th><th>IP</th><th>Zone</th>')
-		for key, threshold in THRESHOLDS.iteritems():
+		for key, threshold in thresholds(PROJECT_ID).iteritems():
 			self.response.out.write('<th>%s (max %s)</th>' % (key, str(threshold['max'])))
 		self.response.out.write('<th>Data</th></tr>')
 
@@ -371,7 +382,7 @@ class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming 
 
 			self.response.out.write('</td><td>%s</td><td>%s</td><td>%s</td>' % (instance['name'], instance['ip'], instance['zone']))
 			instanceLoad = memcache.get('load-' + instance['name']) # Get the load for this server
-			for key, threshold in THRESHOLDS.iteritems():
+			for key, threshold in thresholds(PROJECT_ID).iteritems():
 				self.response.out.write('<td>')
 				if instanceLoad is not None and key in instanceLoad and instanceLoad[key]:
 					self.response.out.write(instanceLoad[key] + ' (' + str(int(float(instanceLoad[key]) / float(threshold['max']) * 100.0)) + '%)')
@@ -402,7 +413,7 @@ class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming 
 		self.response.out.write('<h3>Thresholds</h3>')
 		self.response.out.write('<form action="/" method="POST">')
 		self.response.out.write('<table><tr><th>Name</th><th>Max</th><th>Slope (percent)</th><th>Start (percent)</th><th>Stop (percent)</th></tr>')
-		for key, threshold in THRESHOLDS.iteritems(): # Loop through all thresholds and test them:
+		for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all thresholds and test them:
 			self.response.out.write('<tr><td>' + key + '</td><td><input type="text" name="' + key + '-max" value="' + str(threshold['max']) + '" /></td><td><input type="text" name="' + key + '-slope" value="' + str(threshold['slope']) + '" />%</td><td><input type="text" name="' + key + '-start" value="' + str(threshold['start']) + '" />%</td><td><input type="text" name="' + key + '-stop" value="' + str(threshold['stop']) + '" />%</td></tr>')
 		self.response.out.write('</table>')
 		self.response.out.write('<p><input type="submit" name="action" value="Save Threshold Levels" /></p></form>')
@@ -486,8 +497,8 @@ class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming 
 		self.response.out.write('<h2>Report load</h2>')
 		self.response.out.write('<h3>Example</h3>')
 		self.response.out.write('<pre>curl -F action=report ')
-		for key, threshold in THRESHOLDS.iteritems():
-			self.response.out.write('-F ' + key + '=' + str(int(threshold['max'] / 100.0 * threshold['stop'])) + ' ')
+		for key, threshold in thresholds(PROJECT_ID).iteritems():
+			self.response.out.write('-F ' + key + '=' + str(int(float(threshold['max']) / 100.0 * float(threshold['stop']))) + ' ')
 		self.response.out.write('%s/report' % (self.request.host_url))
 
 	def post(self):
@@ -538,6 +549,16 @@ class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming 
 					if measurePoint != self.request.get('name'):
 						mp.append(measurePoint)
 				c.measurePoints = mp
+				c.put()
+			elif action == 'Save Threshold Levels':
+				c = config(PROJECT_ID)
+				newthresholds = {}
+				for measurePoint in measurePoints(PROJECT_ID):
+					newthresholds[measurePoint] = {}
+					ths = [ "max", "slope", "start", "stop" ]
+					for th in ths:
+						newthresholds[measurePoint][th] = self.request.get(measurePoint + '-' + th)
+				c.thresholds = newthresholds
 				c.put()
 				
 			self.response.set_status(303)
