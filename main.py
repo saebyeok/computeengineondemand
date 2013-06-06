@@ -339,7 +339,7 @@ def startInstance(zone): # Start a new server in a given zone.
 		"metadata": {
 			"items": []
 		},
-		"machineType": "%s/zones/%s/machineTypes/n1-standard-1" % (GCE_PROJECT_URL, zone),
+		"machineType": "%s/zones/%s/machineTypes/n1-highcpu-2" % (GCE_PROJECT_URL, zone),
 		"zone": "%s/zones/%s" % (GCE_PROJECT_URL, zone),
 		"image": "%s" % (config(PROJECT_ID).bootImage)
 	}
