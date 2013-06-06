@@ -36,7 +36,20 @@ class ProjectConfig(db.Model):
 	thresholds = dictproperty.DictProperty()
 	measurePoints = db.StringListProperty()
 
+configCache = None
+configCacheSerial = 0
+def clearConfigCache(projectId):
+	memcache.incr('configserial-' + projectId, initial_value = int(str(time.mktime(time.gmtime())).split('.')[0]))
+	logging.debug("Config cache cleared")
+
 def config(projectId):
+	global configCache
+	global configCacheSerial
+	memcacheconfigserial = memcache.get('configserial-' + projectId)
+	if configCache is not None and memcacheconfigserial is not None and configCacheSerial == memcacheconfigserial:
+		logging.debug("Using config cache")
+		return configCache
+
 	c = ProjectConfig.get_by_key_name(projectId)
 	if not c:
 		c = ProjectConfig(key_name = projectId)
@@ -46,6 +59,9 @@ def config(projectId):
 		c.bootImage = ''
 		c.thresholds = {}
 		c.measurePoints = []
+	configCache = c
+	configCacheSerial = memcacheconfigserial
+	logging.debug("Not using config cache")
 	return c
 
 def thresholds(projectId):
@@ -63,6 +79,7 @@ def thresholds(projectId):
 			changed = True
 	if changed:
 		c.put()
+		clearConfigCache(PROJECT_ID)
 	return c.thresholds
 
 def addAnnounceUrl(projectId, url):
@@ -72,6 +89,7 @@ def addAnnounceUrl(projectId, url):
 			return True
 	c.announceUrls.append(url)
 	c.put()
+	clearConfigCache(PROJECT_ID)
 	return True
 
 def measurePoints(projectId):
@@ -86,6 +104,7 @@ def removeAnnounceUrl(projectId, url):
 			announceUrls.append(announceUrl)
 	c.announceUrls = announceUrls
 	c.put()
+	clearConfigCache(PROJECT_ID)
 	return True
 
 def zoneGroups(projectId):
@@ -109,6 +128,7 @@ def addZoneGroup(projectId, name):
 			return True
 	c.zoneGroups.append(name)
 	c.put()
+	clearConfigCache(PROJECT_ID)
 	return True
 
 def removeZoneGroup(projectId, name):
@@ -119,6 +139,7 @@ def removeZoneGroup(projectId, name):
 			zoneGroups.append(zoneGroup)
 	c.zoneGroups = zoneGroups
 	c.put()
+	clearConfigCache(PROJECT_ID)
 	return True
 
 def zones():
@@ -532,16 +553,19 @@ class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming 
 					zoning[zone['name']] = self.request.get(zone['name'])
 				c.zoning = zoning
 				c.put()
+				clearConfigCache(PROJECT_ID)
 			elif action == 'Select Boot Image':
 				c = config(PROJECT_ID)
 				c.bootImage = self.request.get('link')
 				c.put()
+				clearConfigCache(PROJECT_ID)
 			elif action == 'Force Announcement Now':
 				announceActiveServers()
 			elif action == 'Add Measure Point':
 				c = config(PROJECT_ID)
 				c.measurePoints.append(self.request.get('name'))
 				c.put()
+				clearConfigCache(PROJECT_ID)
 			elif action == 'Remove Measure Point':
 				c = config(PROJECT_ID)
 				mp = []
@@ -550,6 +574,7 @@ class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming 
 						mp.append(measurePoint)
 				c.measurePoints = mp
 				c.put()
+				clearConfigCache(PROJECT_ID)
 			elif action == 'Save Threshold Levels':
 				c = config(PROJECT_ID)
 				newthresholds = {}
@@ -560,6 +585,7 @@ class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming 
 						newthresholds[measurePoint][th] = self.request.get(measurePoint + '-' + th)
 				c.thresholds = newthresholds
 				c.put()
+				clearConfigCache(PROJECT_ID)
 				
 			self.response.set_status(303)
 			self.response.headers['Location'] = '/'
