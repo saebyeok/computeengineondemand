@@ -3,6 +3,7 @@ import webapp2
 import logging
 from google.appengine.api import users
 from google.appengine.ext import db
+from django.utils import simplejson as json
 import dictproperty
 from google.appengine.api import memcache
 import time
@@ -26,17 +27,20 @@ def turnconf():
 		}
 	return c
 
-originToKeyCache = {}
 def originToKey(origin):
-	global originToKeyCache
-	c = turnconf()
-	if len(originToKeyCache) == 0:
+	otk = memcache.get('turn-otk-cache')
+	if otk is None:
+		c = turnconf()
+		otk = {}
 		for sitename, siteconfig in c.sites.iteritems(): # Loop through all thresholds and test them:
 			for o in siteconfig["origins"]:
-				originToKeyCache[o] = siteconfig["key"]
-	if origin not in originToKeyCache:
+				otk[o] = siteconfig["key"]
+		memcache.set('turn-otk-cache', json.dumps(otk))
+	else:
+		otk = json.loads(otk)
+	if origin not in otk:
 		return None
-	return originToKeyCache[origin]
+	return otk[origin]
 		
 class TurnAdminRequestHandler(webapp2.RequestHandler):
 
@@ -78,6 +82,7 @@ class TurnAdminRequestHandler(webapp2.RequestHandler):
 				if self.request.get('site') in c.sites:
 					c.sites[self.request.get('site')]["origins"].append(self.request.get('origin'))
 				c.put()
+				memcache.delete('turn-otk-cache')
 
 		elif action == 'Remove origin':
 			c = turnconf()
@@ -88,12 +93,14 @@ class TurnAdminRequestHandler(webapp2.RequestHandler):
 						neworigins.append(o)
 				c.sites[self.request.get('site')]["origins"] = neworigins;
 				c.put()
+				memcache.delete('turn-otk-cache')
 
 		elif action == 'Change key':
 			c = turnconf()
 			if self.request.get('site') in c.sites:
 				c.sites[self.request.get('site')]["key"] = self.request.get('key')
 				c.put()
+				memcache.delete('turn-otk-cache')
 
 		elif action == 'Add site':
 			c = turnconf()
@@ -104,18 +111,21 @@ class TurnAdminRequestHandler(webapp2.RequestHandler):
 						"origins": [ "http://example.org", "https://www.example.com" ]
 					}
 					c.put()
+					memcache.delete('turn-otk-cache')
 
 		elif action == 'Remove site':
 			c = turnconf()
 			if self.request.get('site') in c.sites:
 				c.sites.pop(self.request.get('site', None))
 				c.put()
+				memcache.delete('turn-otk-cache')
 
 		elif action == 'Change key':
 			c = turnconf()
 			if self.request.get('site') in c.sites:
 				c.sites[self.request.get('site')]["key"] = self.request.get('key')
 				c.put()
+				memcache.delete('turn-otk-cache')
 
 		self.response.set_status(303)
 		self.response.headers['Location'] = '/turnadmin'
