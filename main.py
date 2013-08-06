@@ -175,7 +175,8 @@ def instances():
 
 def loadReport(ip, load):
 	announce = False
-	for instance in instances():
+	instances = instances()
+	for instance in instances:
 		if ip == instance['ip']:
 			logging.debug("Got report request from instance at %s" % ip)
 			instanceLoad = memcache.get('load-' + instance['name']) # Get the load for the server
@@ -186,18 +187,18 @@ def loadReport(ip, load):
 			else:
 				logging.debug('Data parameter from instance did not change.')
 			memcache.set('load-' + instance['name'], load)
-			if reconsiderServers():
+			if reconsiderServers(instances):
 				logging.debug('Something was reconsidered. We should announce it!')
 				announce = True
 	if announce:
 		announceActiveServers()
 
-def reconsiderServers():
+def reconsiderServers(instances):
 	announce = False
 	zoning = zoningConfig(PROJECT_ID)
 	for key, zones in zoning.iteritems():
 		instancesInZoneGroup = []
-		for instance in instances(): # Loop all running instances
+		for instance in instances: # Loop all running instances
 			if instance['zone'] in zones:
 				instancesInZoneGroup.append(instance)
 		logging.debug('Reconsidering zonegroup %s' % (key))
@@ -592,4 +593,3 @@ class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming 
 
 logging.getLogger().setLevel(logging.DEBUG)
 app = webapp2.WSGIApplication([('/', HttpRequestHandler), ('/report', HttpRequestHandler)], debug=True)
-	
