@@ -160,7 +160,7 @@ def instances():
 					if len(instance["networkInterfaces"][0]["accessConfigs"]) > 0 and 'natIP' in instance["networkInterfaces"][0]["accessConfigs"][0]:
 						ip = instance["networkInterfaces"][0]["accessConfigs"][0]["natIP"]
 					zone = instance["zone"].split('/')
-					zone = zone[-1] 
+					zone = zone[-1]
 					instances.append({
 						"name": instance["name"],
 						"zone": zone,
@@ -175,8 +175,8 @@ def instances():
 
 def loadReport(ip, load):
 	announce = False
-	instances = instances()
-	for instance in instances:
+	all_instances = instances()
+	for instance in all_instances:
 		if ip == instance['ip']:
 			logging.debug("Got report request from instance at %s" % ip)
 			instanceLoad = memcache.get('load-' + instance['name']) # Get the load for the server
@@ -187,7 +187,7 @@ def loadReport(ip, load):
 			else:
 				logging.debug('Data parameter from instance did not change.')
 			memcache.set('load-' + instance['name'], load)
-			if reconsiderServers(instances):
+			if reconsiderServers(all_instances):
 				logging.debug('Something was reconsidered. We should announce it!')
 				announce = True
 	if announce:
@@ -213,6 +213,8 @@ def reconsiderServers(instances):
 
 def addServersInZoneGroup(zonegroup, instancesInZoneGroup):
 	zoning = zoningConfig(PROJECT_ID)
+	if len(zoning[zonegroup]) == 0:
+		return
 	if len(instancesInZoneGroup) == 0:
 		logging.debug('Starting instance in zonegroup ' + zonegroup + ' since there are no instances in that zone group.')
 		startInstance(zone = choice(zoning[zonegroup]))
@@ -261,11 +263,11 @@ def setActiveServerInZoneGroup(zonegroup, instancesInZoneGroup):
 		if instanceLoad != None: # If we have no load info on this instance, it probably just started. `ok` stays True...
 			if instanceStatus == 'sloping':
 				for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all threshold checks:
-					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(float(threshold['max']) / 100.0 * float(threshold['slope'])): 
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(float(threshold['max']) / 100.0 * float(threshold['slope'])):
 						ok = False
 			else:
 				for key, threshold in thresholds(PROJECT_ID).iteritems(): # Loop through all threshold checks:
-					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(float(threshold['max'])): 
+					if re.match('^[0-9]+$', instanceLoad[key]) and int(instanceLoad[key]) > int(float(threshold['max'])):
 						ok = False
 						memcache.set("status-" + instance['name'], 'sloping')
 		if ok:
@@ -300,12 +302,15 @@ def announceActiveServers():
 
 	for url in config(PROJECT_ID).announceUrls:
 		logging.debug(' - Announcing to: %s' % url);
-		urlfetch.fetch(
-			url = url,
-			method = urlfetch.POST,
-			headers = { 'Content-Type': 'application/x-www-form-urlencoded' },
-			payload = urllib.urlencode(payload)
-		)
+		try:
+			urlfetch.fetch(
+				url = url,
+				method = urlfetch.POST,
+				headers = { 'Content-Type': 'application/x-www-form-urlencoded' },
+				payload = urllib.urlencode(payload)
+			)
+		except:
+			logging.error('    POST failed!')
 
 def startInstance(zone): # Start a new server in a given zone.
 	name = "instance-" + str(int(time.time())) + "-" + str(randint(1000, 9999))
@@ -587,7 +592,7 @@ class HttpRequestHandler(webapp2.RequestHandler): # Class for handling incoming 
 				c.thresholds = newthresholds
 				c.put()
 				clearConfigCache(PROJECT_ID)
-				
+
 			self.response.set_status(303)
 			self.response.headers['Location'] = '/'
 

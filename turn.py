@@ -41,7 +41,7 @@ def originToKey(origin):
 	if origin not in otk:
 		return None
 	return otk[origin]
-		
+
 class TurnAdminRequestHandler(webapp2.RequestHandler):
 
 	def is_authorized(self):
@@ -142,7 +142,7 @@ class TurnRequestHandler(webapp2.RequestHandler):
 			if correctKey is None:
 				self.response.out.write('{ \"error\":\"Origin not allowed.\", \"origin\":\"%s\" }' % (self.request.headers['Origin']))
 				return
-				
+
 			if correctKey != "" and key != correctKey:
 				self.response.out.write('{ \"error\":\"Key error.\" }')
 				return
@@ -162,6 +162,8 @@ class TurnRequestHandler(webapp2.RequestHandler):
 		if 'X-Appengine-Citylatlong' in self.request.headers and int(round(float(self.request.headers['X-Appengine-Citylatlong'].split(',')[1]), 0)) in range(-25,90):
 			geo = 'europe-west'
 		instance = memcache.get("active-server-" + geo)
+		if not instance:
+			raise Exception('No active server info for [%s]' % geo)
 		instanceLoad = memcache.get('load-' + instance['name'])
 		shared_key = instanceLoad['data']
 
@@ -171,4 +173,3 @@ class TurnRequestHandler(webapp2.RequestHandler):
 
 logging.getLogger().setLevel(logging.DEBUG)
 app = webapp2.WSGIApplication([('/turn', TurnRequestHandler), ('/turnadmin', TurnAdminRequestHandler)], debug=True)
-
